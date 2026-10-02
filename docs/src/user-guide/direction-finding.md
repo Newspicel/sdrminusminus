@@ -17,9 +17,9 @@ bearings from several places, or from one moving array, into a position.
 | MUSIC | Splits close sources |
 | Root-MUSIC, ESPRIT | Grid free, need a line or a circle |
 
-**More** holds the rest. **Sources** counts transmitters on its own with **Auto**, or takes a
-fixed number. **Squelch** drops weak peaks, **Smooth** helps with reflections and **Station** names
-the bearings this finder sends.
+**Sources** counts transmitters with **Auto**, or takes a fixed number. **Squelch** drops weak
+peaks and **Station** names the bearings this finder sends. **More** holds the rest, such as
+**Smooth** against reflections and **Yaw gate**.
 
 ## The rose
 
@@ -31,6 +31,7 @@ on the Array.
 |---|---|
 | Bearing, ± | The strongest bearing and its one sigma |
 | Fit | Share of the signal the bearings explain |
+| SNR | Signal to noise |
 | Src | Sources found |
 
 | Chip | Means |
@@ -39,8 +40,11 @@ on the Array.
 | No heading | Wire a GPS with heading to the Array |
 | No position | Wire a GPS to the Array |
 | Aliased | Antennas more than half a wavelength apart |
+| Mode alias | Too high for phase modes on this circle |
 | Mirror | A line cannot tell front from back. **Side** picks one. |
 | Rotating | Turning faster than **Yaw gate**, blocks skipped |
+| Singular | Covariance could not be inverted |
+| Table off | Outside the calibration table |
 | Stale | No reading for three report periods |
 
 ## Listen in one direction
@@ -63,17 +67,18 @@ A [Signal hunt](scanning.md#hunt-a-transmitter) with a phone sends bearings too.
 | Bearings | Bearings in use |
 
 The table lists each station's last bearing, its spread and age. **Fade** sets how fast old
-bearings lose weight: **Auto** picks **Fixed** or **Moving** from the stations. **Clear** throws
-away every bearing.
+bearings lose weight: **Auto** picks **Fixed** or **Moving** from the stations, **Set** takes your
+half life. **Min conf** refuses weak bearings and **Emitters** caps how many transmitters it
+finds. **Clear** throws away every bearing.
 
 Wire a vehicle's GPS to Triangulation `position` for guidance. **Guide** picks **Auto**, which
-crosses the bearings first and then drives at the fix, or **Direct**. **Probe** sets how far to
-drive across a single bearing.
+crosses the bearings first and then drives at the fix, **Direct** or **Off**. **Probe** sets how
+far to drive across a single bearing.
 
 ## On the map
 
 Wire finder and Triangulation `events` to a **Map**. It draws bearing rays, a heat layer of
-likely positions, the estimate and its ellipse. The first settled fix is an event that an
+likely positions, the estimate and its ellipse. The first fix is an event that an
 **Event output** can forward.
 
 ## In a car

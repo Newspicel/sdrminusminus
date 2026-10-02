@@ -70,7 +70,7 @@ function GainRow({ node, status }: { node: string; status: ArrayStatus | undefin
         <AutoToggle
           label="Auto gain"
           pressed={auto}
-          title="Radio AGC on every lane"
+          title="Array picks one gain for every lane. Needs a cal source."
           disabled={off}
           onChange={(on) => {
             slider.cancel();

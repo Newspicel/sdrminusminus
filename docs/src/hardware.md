@@ -3,11 +3,9 @@
 A **Device** node opens one radio: over USB, over the network, or through SoapySDR. Recordings and
 generated signals have nodes of their own, see [Other sources](#other-sources).
 
-Radio missing? Press **Check hardware** on an empty Device node, or run `sdrmm --doctor`.
-
 ## Supported radios
 
-The desktop and portable builds include these drivers:
+Packaged builds include every driver here except CR-8:
 
 | Radio | Connects over | Needs |
 |---|---|---|
@@ -30,7 +28,7 @@ Making a radio? Write to [hi@jhaag.me](mailto:hi@jhaag.me) to get it supported a
 
 ### USB
 
-Plug it in: it appears on every empty Device node.
+Plug it in and it appears in the **Radios** tab of every empty Device node.
 
 On Linux, install your radio's udev rules and add the server's user to the group they name, usually
 `plugdev`. Reload udev and replug the radio. SDR-- never needs root. For containers, see
@@ -38,7 +36,8 @@ On Linux, install your radio's udev rules and add the server's user to the group
 
 ### Network radios
 
-On an empty Device node, open the **Network** tab and enter `host:port`:
+On an empty Device node, open the **Network** tab, pick the protocol under **Via**, and enter
+`host:port`. Without a port it uses the default:
 
 | Protocol | Default port |
 |---|---:|
@@ -46,22 +45,24 @@ On an empty Device node, open the **Network** tab and enter `host:port`:
 | SpyServer | 5555 |
 | SDRconnect | 5454 |
 | KiwiSDR | 8073 |
-| AD936x / iiod | 30431 |
+| AntSDR / Pluto | 30431 |
 
 The address becomes the radio's identity in the workspace. The bookmark button next to **Add**
-saves it; saved radios are listed above the form on every empty Device node.
+saves it; saved radios are listed above the form.
 
-Network IQ uses a lot of bandwidth. When the link cannot keep up, the radio node shows **Lost**
-with the share of samples missing: lower the rate.
+Network IQ uses a lot of bandwidth. When the link cannot keep up, the node shows **Lost** with the
+share of samples missing: lower the rate.
 
-### Check the installation
+### Radio missing
+
+Press **Check hardware** on an empty Device node, or run:
 
 ```sh
 sdrmm --doctor
 ```
 
-It lists compiled drivers, loaded libraries, SoapySDR modules, found radios, data paths, and Linux
-USB permissions. **Check hardware** runs the same checks from the interface.
+Both list compiled drivers, loaded libraries, SoapySDR modules, found radios, data paths, and
+Linux USB permissions. See also [Troubleshooting](troubleshooting.md#a-radio-is-missing).
 
 ## Device controls
 
@@ -70,26 +71,27 @@ Controls mean the same thing on every radio:
 | Control | Sets |
 |---|---|
 | Rate | Sample rate |
-| Lanes | How many receive lanes stream, on radios that can choose |
-| Filter | Analog bandwidth before sampling, or Auto |
+| BW or Filter | Analog bandwidth before sampling. **BW** has an auto setting. |
 | Antenna | Input port, when there is a choice |
-| AGC | **Auto** on the gain row. The radio sets its own gain; the slider shows what it chose, where the radio reports it. |
+| Auto | AGC, on the gain row. The slider shows the gain the radio chose, where it reports it. |
+| AGC | AGC mode, on radios that have several |
 | LNA, Mixer, VGA, IF, RF, Tuner, Attenuator | One gain stage each, in dB or firmware steps |
 | Amp | A switchable preamp |
 | Bias tee | Power on the antenna port for an active antenna or LNA |
 | PPM | Crystal correction |
-| Converter | Local oscillator of an up- or downconverter, in MHz |
+| Conv | Local oscillator of an up- or downconverter, in MHz |
 | DC block | Removes the radio's own DC spike |
 
-On a radio with several lanes, each lane's own controls sit under `iq1`, `iq2`, and so on, and the
-ones they share under **All lanes**. **Health** shows clipping, queue delay, and lost samples.
+On a radio with several lanes, each lane's gain row is labelled `iq1`, `iq2`, and so on, and the
+**All** row sets every lane. On radios that can choose, the −/+ buttons on that row set how many
+lanes stream. The footer shows **Queue** delay, **Drops**, **Lost** samples, and **Clipping**.
 
-With a converter set, every frequency shown is the one at the antenna. Enter a positive value for a
-downconverter, like 9750 for a Ku-band LNB, and a negative one for an upconverter, like −125 for a
+With **Conv** set, every frequency shown is the one at the antenna. Enter a positive value for a
+downconverter, like 9750 for a Ku-band LNB, and a negative one for an upconverter, like -125 for a
 Ham It Up.
 
-Settings only one radio has appear below these rows. Some change the others: RTL-SDR direct
-sampling changes the tuning range. Transmit is not available yet.
+Settings only one radio has appear as extra chips. Some change the others: RTL-SDR direct
+sampling changes the tuning range. There is no transmit.
 
 ### Calibration
 
@@ -99,151 +101,49 @@ address. RTL-SDRs need [serials of their own](#serials).
 
 ## RTL-SDR
 
+The built-in driver needs an R820T or R828D tuner; E4000, FC0012, FC0013, and FC2580 dongles are
+refused. On Windows, install the WinUSB driver with Zadig.
+
 | Control | Does |
 |---|---|
 | Tuner | Gain, in the tuner's own steps: 20 dB on an R820T becomes 19.7 dB |
-| AGC | Tuner AGC |
+| Auto | Tuner AGC |
 | Bias tee | Antenna-port power |
 | Direct sampling | `off`, `i`, or `q`. Not on the RTL-SDR Blog V4 or V4 Lite, which upconvert HF. |
 
-Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx tuners.
+Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. BW: 290 kHz to 8 MHz.
 
 ### Serials
 
 Many dongles ship with the serial `00000001`. Two dongles with one serial are told apart by USB
-port instead, shown as `RTL-SDR (bus/address)`, and their settings and
+port instead, shown with `(bus/address)` after the name, and their settings and
 [calibration](#calibration) can follow the wrong one after a replug.
 
-SDR-- asks once when it finds such a dongle. Yes writes a random serial, or one you type, to
+SDR-- asks once when it finds such a dongle. **Yes** writes a random serial, or one you type, to
 its EEPROM. Replug it afterwards. The dongle must be closed, and one without an EEPROM cannot keep a
 serial.
 
 ## KrakenSDR
 
 One Device with five lanes; KerberosSDR has four. SDR-- groups the tuners by serial and USB hub,
-so the vendor Pi image is not needed. **Make array** wires all lanes to an Array. There is no
-direct sampling, and the rate tops out at 2.56 MS/s.
+so the vendor Pi image is not needed. **Make array** wires all lanes to an [Array](user-guide/arrays.md).
+There is no direct sampling, and the rate tops out at 2.56 MS/s.
 
 The lanes share a clock, not a phase. The Array switches on the built-in noise source to solve
 delay, phase, and gain after every retune and gain change, and checks them every minute. The
 antennas are cut off while the source is on; processors pause.
 
-- **Gain:** lanes 2 to 4 move against lane 1 by about 9° at the 2.7 and 3.7 dB steps, and every
-  lane by up to 4° elsewhere. The Array solves at the gain you run.
-- **Clipping:** the noise source clips from about 3 dB gain up. Solves accept up to 75% clipped
-  samples and add 2° to the calibration sigma; past that the Array shows `Noise clips`.
-- **Restarts:** a lane error restarts all five lanes in about 80 ms. Their offsets move by up to
-  10 ms, so the Array searches again from scratch.
+- **Gain:** lane phase moves by up to about 10° across the gain steps. The Array solves at the gain
+  you run.
+- **Clipping:** the noise source clips at higher gain. Past 75% clipped samples the Array shows
+  `Noise clips, lower gain`.
+- **Restarts:** a lane error restarts all five lanes in about 80 ms, and the Array searches its
+  offsets again from scratch.
 
 If the array shows up as separate dongles, one of its tuners is missing: check `sdrmm --doctor`
-or `lsusb`.
+or `lsusb`. [Hardware tests](development/hardware-tests.md#krakensdr) has measurements.
 
 Tested on hardware provided by [KrakenRF](https://www.krakenrf.com). Thank you.
-
-### Measured
-
-KrakenSDR 1000 to 1004, no antennas, 2.4 MS/s, Apple M4 Max. Raw numbers land in
-`target/hardware/*.csv` when the [hardware tests](#hardware-tests) run.
-
-Share of I/Q values at full scale with the noise source on, lane 1:
-
-| MHz | 0 dB | 8.7 dB | 19.7 dB | 29.7 dB | 49.6 dB |
-|---:|---:|---:|---:|---:|---:|
-| 30 | 0 | 0.032 | 0.133 | 0.164 | 0.171 |
-| 100 | 0 | 0.046 | 0.137 | 0.164 | 0.171 |
-| 433.92 | 0 | 0.045 | 0.129 | 0.159 | 0.168 |
-| 868 | 0 | 0.044 | 0.129 | 0.157 | 0.160 |
-| 1090 | 0 | 0 | 0.022 | 0.098 | 0.116 |
-| 1300 | 0 | 0 | 0.006 | 0.055 | 0.071 |
-| 1700 | 0 | 0 | 0 | 0.004 | 0.007 |
-
-Noise source solves over all 29 gain steps, lanes 2 to 5 against lane 1:
-
-| MHz | Lowest coherence | Lowest pair coherence | Lowest purity | Most clipped samples | Phase from 0 dB |
-|---:|---:|---:|---:|---:|---|
-| 100 | 0.83 | 0.82 | 0.95 | 0.58 | −8.9° to +3.8° |
-| 433.92 | 0.84 | 0.83 | 0.95 | 0.36 | −9.2° to +2.1° |
-| 868 | 0.74 | 0.71 | 0.92 | 0.34 | −9.4° to +2.4° |
-| 1090 | 0.91 | 0.91 | 0.97 | 0.28 | −9.3° to +2.5° |
-| 1300 | 0.75 | 0.76 | 0.91 | 0.22 | −9.2° to +2.4° |
-| 1700 | 0.68 | 0.67 | 0.89 | 0.06 | −9.8° to +1.9° |
-
-Noise solves therefore accept lane coherence from 0.5, pair coherence from 0.5, and bin purity
-from 0.8.
-
-| Check | Result |
-|---|---|
-| Start spread, 20 starts at 1.024, 2.4, 2.56 MS/s | 6.5 to 7.8 ms, about 1.7 ms per lane. Coarse search reaches 256 to 437 ms. |
-| Lane 3 failed on purpose | Every lane reports `Rearmed` and streams again after 76 to 80 ms. |
-| 2.88 MS/s | Refused: `KrakenSDR runs at most 2.56 MS/s` |
-| Noise source off | Back at the noise floor within 1,024 samples |
-| Noise source on exit | Off after a drop, a drop while streaming, a panic, and a server stop |
-| Array, 433.92 MHz, 30 dB | Locked and solved in 2.3 s. 18 checks in 3 minutes: delay within 0.007 samples, phase within 0.9°. |
-| Retune 100 to 433.92 to 868 MHz, gain 20 to 40 dB | Stale after 0.44 s, solved after 0.69 to 0.71 s |
-| Processors during noise | None saw a noise block |
-| Direction finder on noise only | 357 reports, 0 sources |
-
-Source count on real tuners, 0 to 29.7 dB. Receiver noise alone: the largest eigenvalue sits at most
-1 dB over the rest, dominance counts 0, MDL up to 4. Noise source in a 37.5 or 300 kHz band: the
-second eigenvalue is 14 to 24 dB down, dominance counts 1, MDL 4. Over the full uncalibrated
-2.4 MHz it is 5 to 11 dB down and dominance counts 2. The 6 dB and 12 dB thresholds stay.
-
-Passive radar, median of 10 CPIs, M4 Max shared with other builds:
-
-| | FM | Target | DAB | Target |
-|---|---:|---:|---:|---:|
-| Front, share of a core | 0.05 | 0.10 | 0.11 | 0.15 |
-| CPI, one thread | 6.3 ms | 25 ms | 62 ms | 120 ms |
-| CPI, crew of 3 | 5.2 ms | | 40 ms | 50 ms |
-| CPI, Auto | 5.3 ms on the CPU | | 23 ms on the GPU | 30 ms |
-
-The DAB CPI on the GPU stays under 30 ms at a load average of 20, but other apps busy on the GPU
-can still push it past. Its GPU CAF alone takes 9 to 10 ms.
-
-Not measured yet: bearings against a transmitter at known bearings, radar on a live FM station
-(both need antennas), and a Raspberry Pi 5.
-
-## Coherence tiers
-
-| Radio | Tier | Noise source |
-|---|---|---|
-| KrakenSDR | `time_sync` | Built in, antennas cut off |
-| KerberosSDR | `time_sync` | Built in, antennas stay on |
-| RSPduo dual tuner | `time_sync` | None |
-| LimeSDR, USRP B210, bladeRF 2, AD936x boards | `phase_coherent` | None |
-| Other multi-channel SoapySDR radios | `time_sync` | None |
-| CR-8 | As the radio reports | As the radio reports |
-| Several radios in one Array | The lowest member, or what you declare, capped by measured drift | None |
-| [Array recording](user-guide/recording.md#play-an-array-recording) | As recorded | Recorded noise windows |
-
-## Hardware tests
-
-With a KrakenSDR attached and nothing else using it:
-
-```sh
-cargo test -p sdrmm-device-rtlsdr kraken_ -- --ignored --nocapture --test-threads=1
-cargo test -p sdrmm-engine --test array_hardware -- --ignored --nocapture --test-threads=1
-SDRMM_BENCH_ASSERT=mac cargo test -p sdrmm-engine --release --features gpu-fft \
-  --test radar_hardware benchmark_radar -- --ignored --nocapture
-SDRMM_RADAR_FM_HZ=<local FM in Hz> cargo test -p sdrmm-engine --release \
-  --test radar_hardware kraken_fm_live -- --ignored --nocapture
-```
-
-Add `--features probe` to the array tests to check that no processor sees the noise source.
-`SDRMM_BENCH_ASSERT=pi5` checks the Raspberry Pi 5 budget.
-
-`kraken_df_known_bearing` needs antennas and a transmitter:
-
-| Variable | Value |
-|---|---|
-| `SDRMM_DF_TX_HZ` | Transmitter frequency |
-| `SDRMM_DF_BEARINGS` | Bearings relative to element 1, at least 3, none mirrored about its axis, like `40,130,250` |
-| `SDRMM_DF_RADIUS_M` | Array radius, default 0.35 |
-| `SDRMM_DF_WINDING` | `clockwise` or `counter_clockwise` |
-| `SDRMM_DF_GAIN_DB`, `SDRMM_DF_BANDWIDTH_HZ` | Gain, default 30; band, default 20 kHz |
-
-It asks you to move the transmitter, takes 60 reports per bearing, and passes when every error is
-under 5° or 2 sigma and the RMS error lies within 0.5 to 2 times the mean sigma.
 
 ## HackRF
 
@@ -252,22 +152,23 @@ under 5° or 2 sigma and the RMS error lies within 0.5 to 2 times the mean sigma
 | LNA | Gain in 8 dB steps |
 | VGA | Gain in 2 dB steps |
 | Amp | +14 dB RF amplifier |
-| Filter | Baseband filter, or Auto |
+| BW | Baseband filter, or auto |
 | Bias tee | Antenna-port power |
+
+Rates: 2 to 20 MS/s. Tunes 1 MHz to 6 GHz.
 
 ## Airspy
 
 Built in, no vendor library needed. To use SoapySDR instead, build without `airspy` and `airspyhf`.
 
-**R2 and Mini:** LNA, Mixer, and VGA gain use firmware steps, not dB. AGC can run the LNA, the
-mixer, or both. Bias tee available. Faint carriers on multiples of 10 MHz come from the radio's own
-clock.
+**R2 and Mini:** tunes 24 MHz to 1.8 GHz. LNA, Mixer, and VGA gain use firmware steps, not dB.
+AGC can run the LNA, the mixer, or both. Bias tee available.
 
-**HF+ and HF+ Discovery:** tunes up to 31 MHz and 60 to 260 MHz. Controls are Amp, attenuation in
-6 dB steps down to −48 dB, AGC with a low or high threshold, and PPM, which starts from the
-calibration stored on the radio. A centre below 180 kHz (84 kHz at the narrower rates) tunes to that
-floor, and the band still shows it. Only the widest rates leave a spike at the centre for the DC
-blocker. Images sit about 50 dB down; the vendor's adaptive IQ balance is not used.
+**HF+ and HF+ Discovery:** tunes up to 31 MHz and 60 to 260 MHz. Controls are Amp (+6 dB),
+Attenuator in 6 dB steps down to -48 dB, AGC with a low or high threshold, and PPM, which starts
+from the calibration stored on the radio. A centre below 180 kHz (84 kHz at the narrower rates)
+tunes to that floor, and the band still shows it. **DC block** appears only at rates that leave a
+spike at the centre.
 
 Tested on hardware provided by [Airspy](https://airspy.com). Thank you.
 
@@ -284,8 +185,8 @@ gap.
 |---|---|
 | Frequency | 100 MHz to 6 GHz in 1 MHz steps; only 2.4 GHz (and 5 GHz on C5) is reliable |
 | Rate | 80, 40 or 16 MS/s on ESP32, per chip otherwise |
-| RX | Gain index, not dB, or hardware AGC |
-| Filter | Analog bandwidth, or Auto for widest |
+| Tuner | Gain index, not dB. **Auto** is the hardware AGC. |
+| BW | Analog bandwidth, or auto for widest |
 | Bits | 8 or 10 bits per sample; 10 is slower over serial |
 | Burst | Samples per capture |
 
@@ -295,14 +196,12 @@ user to `dialout`.
 
 ## AntSDR
 
-SDR-- talks to the iiod server of the AntSDR's Pluto firmware directly, with no libiio. It is tested
-on the E310: an AD9361 from 70 MHz to 6 GHz with up to 56 MHz of bandwidth, and two receive and two
-transmit lanes on one synthesizer, so both receive lanes are phase coherent. Support for the UHD
-firmware is planned.
+SDR-- talks to the iiod server of the AntSDR's Pluto firmware directly, with no libiio. The E310
+has two receive lanes on one synthesizer, so they are phase coherent. UHD firmware is not
+supported.
 
-**USB:** connect the USB 2.0 port and the board appears on its own, with no network setup. Windows
-needs the [PlutoSDR drivers](https://wiki.analog.com/university/tools/pluto/drivers/windows). USB
-2.0 carries a few MS/s.
+**USB:** connect the USB 2.0 port and the board appears with no network setup. Windows needs the
+[PlutoSDR drivers](https://wiki.analog.com/university/tools/pluto/drivers/windows).
 
 **Ethernet, direct cable:** the board sits at `192.168.1.10`. Give the computer's Ethernet port a
 fixed address in the same range once, and leave the router empty so the internet stays on Wi-Fi:
@@ -319,33 +218,34 @@ board a free address in your range: connect it over USB, open the drive it shows
 `ipaddr_eth` and `netmask_eth` in `config.txt`, and eject. Over SSH the login is `root` /
 `analog`.
 
-**Search** tries `192.168.1.10`, `ant.local` and `192.168.2.1`; enter any other address in the
-**Network** tab. If nothing is found, `ping 192.168.1.10`: no answer means the cable or the
-computer's address.
+Empty Device nodes look for a board at `ant.local`, `192.168.1.10`, `pluto.local`, and
+`192.168.2.1`; enter any other address in the **Network** tab. If nothing is found,
+`ping 192.168.1.10`: no answer means the cable or the computer's address.
 
-Gigabit Ethernet carries about 60 MB/s from the E310: 15 MS/s on one lane, or 7.5 MS/s per lane on
-two. The E310 locks its antenna and TX ports in firmware, so
-those menus are hidden. The other controls are the [AD936x ones](#plutosdr-and-other-ad936x-boards).
+Ethernet carries far more than USB 2.0, and two lanes split the link. The E310 locks its antenna
+and TX ports in firmware, so those menus are hidden. The other controls are the
+[AD936x ones](#plutosdr-and-other-ad936x-boards).
 
 Tested on hardware provided by [MicroPhase](https://www.microphase.cn/). Thank you.
 
 ## PlutoSDR and other AD936x boards
 
-Talks to iiod directly over USB or Ethernet, with no libiio or SoapySDR. USB boards appear on their
-own. **Search** also tries `pluto.local`, `192.168.2.1`, `ant.local`, and `192.168.1.10`.
+Talks to iiod directly over USB or Ethernet, with no libiio or SoapySDR. USB boards appear
+automatically, and network boards at `pluto.local`, `192.168.2.1`, `ant.local`, or
+`192.168.1.10`.
 
 The board reports its range: typically 70 MHz to 6 GHz on an AD9361, 325 MHz to 3.8 GHz on an
-AD9363. Rates run from about 260 kS/s to 61.44 MS/s (30.72 on a 2×2 board); below 2.08 MS/s the
-FPGA decimates. The link sets the real limit. On a 2×2 board both RX lanes share a clock and are
-phase coherent.
+AD9363. Rates run from about 260 kS/s to 61.44 MS/s; below 2.08 MS/s the FPGA decimates. The link
+sets the real limit. On a 2×2 board both RX lanes share a clock and are phase coherent.
 
 | Control | Does |
 |---|---|
-| Lanes | 1 or 2 on a 2×2 board. Starts at 1, which gets the whole link. TX lanes follow |
+| −/+ | 1 or 2 lanes on a 2×2 board. Starts at 1, which gets the whole link |
 | Tuner | Receive gain per lane. The range follows the band |
 | TX | Transmit attenuation per lane |
-| AGC | Per lane: slow attack, fast attack, or hybrid |
-| Quadrature, RF DC, baseband DC tracking | Hardware corrections |
+| AGC | Per lane: fast attack, slow attack, or hybrid |
+| Filter | Analog bandwidth |
+| Quadrature, RF DC, Baseband DC tracking | Hardware corrections |
 | Antenna, TX port | Shown only if the board lets the port change |
 
 Linux needs the libiio udev rules. `sdrmm --doctor` checks for them.
@@ -365,12 +265,12 @@ Both gain sliders raise gain when moved up:
 | RF | LNA gain. The steps depend on frequency, port, and HDR mode. |
 | IF | 0 to 39 dB |
 
-AGC runs the IF gain at 5, 50, or 100 Hz. With AGC on, the IF slider sets the starting gain.
+AGC runs the IF gain at 5, 50, or 100 Hz.
 
 Rates run from 62.5 kS/s to 10.66 MS/s on one tuner.
 
-**RSPduo:** each mode is its own entry: Tuner 1, Tuner 2, Dual Tuner, Master, and Slave. Modes in
-use by another program are hidden. Dual Tuner gives two independent streams at up to 2 MS/s each.
+**RSPduo:** each mode is its own entry: Tuner 1, Tuner 2, Dual Tuner, Master (on either tuner), and
+Slave. Modes in use by another program are hidden. Dual Tuner gives two independent streams at up to 2 MS/s each.
 Slave waits for a master program, which owns the clock.
 
 ### SDRconnect
@@ -382,17 +282,17 @@ RSPduo's second tuner.
 
 The link is unencrypted `ws://`. Use it on a trusted network or through a tunnel.
 
-SDR-- receives raw IQ and does its own demodulation. Extra settings:
+SDR-- receives raw IQ and does its own demodulation. Settings:
 
 | Setting | Does |
 |---|---|
-| `lna` | RF gain over the LNA states; lower means more gain. There is no IF gain. |
-| `device_vfo_frequency` | SDRconnect's VFO inside the sampled window |
-| `filter_bandwidth` | SDRconnect's channel filter |
-| `receiver` | Which radio: name, slot, or serial |
-| `network_mode` | Stream quality |
-| `device_profile` | Load a saved SDRconnect profile |
-| `recording` | Record on the SDRconnect machine |
+| LNA | RF gain over the LNA states; lower means more gain. There is no IF gain. |
+| Device VFO | SDRconnect's VFO inside the sampled window |
+| Filter | SDRconnect's channel filter |
+| Receiver | Which radio: name, slot, or serial |
+| Network mode | Stream quality |
+| Device profile | Load a saved SDRconnect profile |
+| Recording | Record on the SDRconnect machine |
 
 The driver follows the public [SDRplay API specification](https://www.sdrplay.com/api/). No vendor
 code is included.
@@ -412,9 +312,9 @@ not reconnect. A dropped connection is retried.
 
 ## Dragon Labs CR-8
 
-Eight `phase_coherent` lanes on one Device, `iq1` to `iq8`, for calibration, direction finding,
-beamforming, and passive radar. All lanes tune together at a fixed 12.5 MS/s, with LNA, mixer, and
-VGA gain per lane. The clock is internal or an external 10 MHz reference.
+Eight phase-coherent lanes on one Device, `iq1` to `iq8`. All lanes tune together, 24 MHz to
+1.766 GHz, at a fixed 12.5 MS/s, with LNA, Mixer, and VGA gain per lane in firmware steps.
+**Clock source** is internal or external.
 
 The packaged builds leave CR-8 out. Build the server with `cr8`, install the vendor library, and
 check it with `sdrmm --doctor`. Set `SDRMM_DLCR_LIBRARY` if the library is somewhere unusual.
@@ -433,47 +333,35 @@ SoapySDR covers radios without a built-in driver. Install the core and a module 
 | System | Core | Example module |
 |---|---|---|
 | Debian, Ubuntu, Raspberry Pi OS | `sudo apt install libsoapysdr0.8` | `soapysdr-module-bladerf` |
-| Fedora | `sudo dnf install SoapySDR` | `SoapySDR-bladeRF` |
+| Fedora | `sudo dnf install SoapySDR` | `soapy-uhd` |
 | Arch | `sudo pacman -S soapysdr` | `soapybladerf` |
-| macOS | `brew install soapysdr` | `soapybladerf` |
-| Windows | [PothosSDR](https://github.com/pothosware/PothosSDR/wiki/Tutorial), on `PATH` | Included |
+| macOS | `brew install soapysdr` | `pothosware/pothos/soapybladerf` |
+| Windows | [PothosSDR](https://github.com/pothosware/PothosSDR/wiki/Tutorial), default install folder | Included |
 | NixOS | [`soapyPlugins`](getting-started/install.md#nix) | |
 
-Desktop and portable builds load SoapySDR at runtime and work without it. The Homebrew formula
-installs the core. The container ships the core with bladeRF, LimeSDR, and SoapyRemote modules. A
-remote `SoapySDRServer` shows up in the normal radio list, through SoapyRemote.
+Packaged builds load SoapySDR at runtime and work without it. The container ships the core with
+bladeRF, LimeSDR, and SoapyRemote modules. A remote `SoapySDRServer` shows up in the normal radio
+list, through SoapyRemote.
 
-Modules must match SoapySDR 0.8. Others are rejected and logged. For unusual install locations:
+SDR-- needs SoapySDR 0.8 and modules built for it. For unusual install locations:
 
 | Variable | Value |
 |---|---|
 | `SDRMM_SOAPY_LIBRARY` | Full path to the core library |
-| `SDRMM_SOAPY_MODULE_PATH` | Extra module folders, searched first |
+| `SOAPY_SDR_ROOT` | SoapySDR install prefix |
+| `SOAPY_SDR_PLUGIN_PATH` | Extra module folders |
 
 `SoapySDRUtil --find` shows what SoapySDR itself sees. It knows nothing about the built-in drivers,
 which SDR-- prefers when both could open a radio.
+
+SDR-- probes SoapySDR in a child process, so a crashing module cannot take it down. Set
+`SDRMM_SOAPY_PROBE=in-process` to turn that off while debugging.
 
 ## Other sources
 
 | Node | Gives |
 |---|---|
 | Recording | Plays a [SigMF recording](user-guide/recording.md#play-a-recording) |
-| Signal generator | 44 signals, from a plain tone to DVB-T |
+| Signal generator | Test signals, from a carrier tone to DVB-T and ATV |
 
-Debug builds also list synthetic radios:
-
-| Radio | Key | Is |
-|---|---|---|
-| Kraken bench ×5 | `kraken5` | Five lanes on one clock with a noise source, like a KrakenSDR |
-| Coherent Array ×4 | `array4` | Four lanes on one clock and LO, with a pilot tone |
-| Dongle 1, Dongle 2 | `dongle1`, `dongle2` | One lane each, two elements of a line array; Dongle 1 holds the noise source |
-| Test band | `band` | A band of test signals on one lane |
-| Receiver ×4, Transceiver 2×2, Half-duplex 1×1 | `quad`, `transceiver`, `halfduplex` | Lane and transmit shapes |
-
-The bench radios hear one FM emitter at 137°.
-
-## How radios are found
-
-SDR-- looks for radios when USB devices change, and for network radios once a minute. SoapySDR
-probing runs in a child process, so a crashing module cannot take SDR-- down. Set
-`SDRMM_SOAPY_PROBE=in-process` to turn that off while debugging.
+Debug builds also list [synthetic radios](development/building.md#test-without-a-radio).

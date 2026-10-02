@@ -1,6 +1,4 @@
 benchmark,case,median_us,p95_us
-coherent::radar::tests::benchmark_radar_pipeline,radar_pipeline/cpu,171411.667,172963.000
-coherent::radar::tests::benchmark_radar_pipeline,radar_pipeline/gpu,41152.083,41710.000
 gpu::benchmarks::benchmark_candidates,spectrum/4096/1/cpu,15.667,16.459
 gpu::benchmarks::benchmark_candidates,spectrum/4096/1/gpu_batched,181.208,218.292
 gpu::benchmarks::benchmark_candidates,spectrum/4096/4/cpu,61.917,65.542
@@ -35,16 +33,6 @@ gpu::benchmarks::benchmark_offload,wideband/2048/cpu,19.709,19.875
 gpu::benchmarks::benchmark_offload,wideband/4096/cpu,40.792,43.500
 gpu::benchmarks::benchmark_offload,wideband/8192/cpu,81.500,86.917
 gpu::benchmarks::benchmark_offload,wideband/32768/cpu,397.542,426.291
-gpu::benchmarks::benchmark_radar_tiled,radar/16384/33/caf_cpu,3045.125,3219.291
-gpu::benchmarks::benchmark_radar_tiled,radar/16384/33/caf_gpu_tiled,581.750,701.542
-gpu::benchmarks::benchmark_radar_tiled,radar/16384/129/caf_cpu,11588.833,11898.041
-gpu::benchmarks::benchmark_radar_tiled,radar/16384/129/caf_gpu_tiled,1278.250,1372.292
-gpu::benchmarks::benchmark_radar_tiled,radar/65536/33/caf_cpu,13174.708,13439.750
-gpu::benchmarks::benchmark_radar_tiled,radar/65536/33/caf_gpu_tiled,2026.917,2420.417
-gpu::benchmarks::benchmark_radar_tiled,radar/65536/129/caf_cpu,49705.917,50686.209
-gpu::benchmarks::benchmark_radar_tiled,radar/65536/129/caf_gpu_tiled,5051.834,5201.125
-gpu::benchmarks::benchmark_radar_tiled,radar/400000/41/caf_cpu,153882.834,156715.958
-gpu::benchmarks::benchmark_radar_tiled,radar/400000/41/caf_gpu_tiled,24395.584,24936.541
 gpu::benchmarks::benchmark_wideband,wideband/2048/cpu,21.959,26.834
 gpu::benchmarks::benchmark_wideband,wideband/2048/gpu,204.708,236.875
 gpu::benchmarks::benchmark_wideband,wideband/4096/cpu,39.625,43.042
@@ -53,5 +41,3 @@ gpu::benchmarks::benchmark_wideband,wideband/8192/cpu,79.500,96.500
 gpu::benchmarks::benchmark_wideband,wideband/8192/gpu,177.250,236.709
 gpu::benchmarks::benchmark_wideband,wideband/32768/cpu,395.417,450.167
 gpu::benchmarks::benchmark_wideband,wideband/32768/gpu,222.583,253.041
-before_stationary_gram,radar/16384/eca_cpu,4296.958,4438.500
-before_stationary_gram,radar/65536/eca_cpu,17190.792,17598.625

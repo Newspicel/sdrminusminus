@@ -1,7 +1,7 @@
 # Keyboard controls
 
 Shortcuts act on the selected node or its connected Device. They are inactive while editing a
-text field or control. Press `?` to open help in the app.
+text field or control. Press `?` or the help button in the top bar to see them in the app.
 
 | Keys | Action |
 |---|---|
@@ -16,13 +16,14 @@ text field or control. Press `?` to open help in the app.
 | `1`–`9` | Select the nth node in the patch |
 | `p` | Pin or unpin the selected node on the rack |
 | `v` | Switch between Patch and Rack |
+| `z` | Fill the window with the selected node; Escape returns |
 | `Ctrl`/`⌘ Z` | Undo the last workspace change, for every connected client |
 | `Ctrl`/`⌘ Shift Z` or `Ctrl`/`⌘ Y` | Redo |
 | `Ctrl`/`⌘ C` | Copy the selected nodes and the wires between them |
 | `Ctrl`/`⌘ V` | Paste them beside the originals |
-| Backspace | Delete the selected node or wire |
+| Backspace or Delete | Delete the selected node or wire |
 | `?` | Open help |
-| Escape | Close an overlay or menu |
+| Escape | Close an overlay or menu, or deselect |
 
 ## Dial controls
 
@@ -32,6 +33,8 @@ Once the frequency dial has focus:
 - Up and Down change the selected digit.
 - Page Up and Page Down change the next larger place.
 - Home and End jump to the first or last place.
+- `0`–`9` set the selected digit and move to the next.
 - Enter opens direct frequency entry.
 
-Select a Device before scrolling its dial. This keeps canvas scrolling from changing the frequency.
+Select a node before scrolling its dial. This keeps canvas scrolling from changing the frequency.
+With `Ctrl`/`⌘` held, scrolling never tunes.

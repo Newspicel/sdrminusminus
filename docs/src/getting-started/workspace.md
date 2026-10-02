@@ -21,49 +21,38 @@ A wire joins an output port to an input port that carries the same kind of data:
 | `events` | Decoded messages | Channel → Readout, Decoder log, Map |
 | `baseband` | One channel's filtered IQ | Channel → Baseband scope, recorder, Network IQ |
 | `video` | Pictures and video | Channel → Video |
-| `control` | Tuning commands | Scanner, Satellite → channel |
-| `position` | Station location and heading | GPS position → Map, Array, ADS-B |
-| `array` | Aligned lanes of an antenna array | Array → Direction finder, Beamformer |
+| `control` | Tuning commands | Scanner, Signal hunt, Satellite → channel |
+| `position` | Station location and heading | GPS position → Map, Array, Satellite, ADS-B |
+| `array` | Aligned lanes of an antenna array | Array → Direction finder, Beamformer, Passive radar |
 
 ## Node types
 
 | Group | Nodes |
 |---|---|
 | Sources | Device, Recording, Signal generator, GPS position |
-| Decoders | AM, NFM, WFM, ADS-B, DMR, and every other [decoder](../user-guide/decoders.md) |
-| Tools | Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Audio FX, and the [array](../user-guide/arrays.md) nodes: Array, Direction finder, Beamformer, Passive radar, Stitch, Spatial spectrum, Correlator, Polarimeter, Triangulation |
-| Outputs | Scope, Baseband scope, Speaker, Readout, Decoder log, Map, Video, Signal survey, Propagation map, recorders, Network IQ, Event output, Export |
+| Decoders | AM, NFM, WFM, ADS-B, DMR, and every other [decoder](../user-guide/decoders.md), by family |
+| Tools | Scanner, Signal hunt, Satellite, Spectrum monitor, DMR trunk system, Event filter, Audio FX, Array, Direction finder, Beamformer, Passive radar, Stitch, Spatial spectrum, Correlator, Polarimeter, Triangulation |
+| Outputs | Scope, Baseband scope, Speaker, Readout, Decoder log, Map, Video, Signal survey, Propagation map, Recorder, Audio recorder, Baseband recorder, Time machine, Network IQ, Event output, Export |
 
-**Add** lists what the running server offers. Double-click or right-click the canvas to add a
-node at the cursor. Hover an entry to see what it does.
+**+ Add** lists what the running server offers. To add a node at the cursor, double-click the
+canvas, or right-click it and pick **Add node here**. Hover an entry to see what it does.
 
-## How a Device and its channels share a radio
+## Devices and channels
 
 A **Device** opens one radio. A **channel** decodes one frequency from the Device's IQ.
 
-By default a Device tunes itself. It places its window over as many wired channels as its sample
-rate can hold, and keeps its own DC spike off them. The Device header counts how many it covers:
-`5/5` is green, `3/5` yellow, `0/5` red. To cover more, raise the sample rate or move some channels
-to another radio.
-
-To tune by hand, press the radar button on the Device or just turn its dial. The Device then stays
-put, and channels outside its window wait until it covers them again.
-
-A channel wired to several Devices runs on whichever one hears it, and names that radio on its
-face. See [Channels](../user-guide/channels.md#which-radio-hears-a-channel).
-
-## Radios come back
+You tune channels, not the radio. The Device moves its window to cover as many wired channels as
+its sample rate can hold, and its header counts them: `5/5` is green, `3/5` yellow, `0/5` red. See
+[Tuning](../user-guide/channels.md#tuning).
 
 A Device node remembers which radio it holds. Unplug it and the node, wires, and settings stay.
-Plug the same radio back in and it reconnects. **Forget radio** frees the node for another
-one.
+Plug the same radio back in and it reconnects, or press **Open radio**. **Forget radio** frees the
+node for another one.
 
-## Applying changes
+## Changes apply live
 
-Edits apply on their own. Applying opens radios, restores settings, updates channels, and closes
-anything the workspace no longer uses. A node that could not apply says why on its face.
-
-## Shared by everyone
+Edits apply as you make them: radios open, settings restore, channels update, and anything the
+workspace no longer uses closes. A node that could not apply says why on its face.
 
 Tuning, switching workspaces, and applying templates affect every connected client. If two
 clients edit the same revision at once, the second gets a conflict instead of overwriting the

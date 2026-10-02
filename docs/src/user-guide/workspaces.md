@@ -2,65 +2,57 @@
 
 | | Holds | Use it to |
 |---|---|---|
-| Workspace | Nodes, wires, rack, radio settings, band plan | Keep a whole receiver |
+| Workspace | Nodes, wires, rack, radio settings, band-plan region | Keep a whole receiver |
 | Template | A ready-made receiver, built in | Start a common setup |
-| Preset | A saved copy of a tuned workspace | Get back to a known state |
-| Bookmark | A frequency and a name | Retune quickly |
+| Preset | Settings and channels of every open radio | Get back to a known state |
+| Bookmark | A frequency, a name, and an optional mode | Retune quickly |
 
 ## Workspaces
 
-Create, switch, rename, and delete workspaces from the name in the top bar. A new database starts
-with a Device, a Scope, and a Speaker. Later workspaces start empty. Changes save on their own.
+Create, switch, rename, duplicate, export, and delete workspaces from the name in the top bar. A
+new database starts with a Device wired to a Scope, and a Speaker. Later workspaces start empty.
+Changes save automatically.
 
 Switching changes the active workspace for every client, including [phones](phones.md), which can
 switch it too.
 
-### Old array nodes
-
-Workspaces from before the [Array](arrays.md) node lose their old direction finder, Combiner,
-array, passive radar and Stitch nodes when they load. A bar names what was removed, such as
-`Removed old nodes: Combiner, Stitch`, until you press **Dismiss**. Rebuild them with an Array.
-
-GPS nodes that used the browser's own position lose their source, and the bar reads
-`GPS source cleared` with their names. Pick a [phone](position.md) or another source.
-
 ### Undo
 
 Use the top-bar arrows, `Ctrl`/`⌘ Z`, and `Ctrl`/`⌘ Shift Z`. Undo changes the running receiver
-for every client: undoing an added channel closes it. The server keeps 100 steps per workspace.
-Tuning is not part of the history.
+for every client: undoing an added channel closes it, and undoing a dial move tunes back. Moves of
+one control within a second count as one step. The server keeps 100 steps per workspace.
 
 ### Copy and paste
 
 Select nodes, then `Ctrl`/`⌘ C` and `Ctrl`/`⌘ V`. Copies land beside the originals with the wires
-between them. Pasted Device nodes need a radio picked. The clipboard works across workspaces
-while the tab stays open.
+between them. Pasted Device and Recording nodes need a radio or file picked. The clipboard works
+across workspaces while the tab stays open.
 
 ### Export and import
 
-The ↓ button downloads the workspace as JSON. **Import a workspace file** adds it as a new
-workspace. Radios that are present open with the saved settings. Missing ones stay disconnected
-and are listed in the apply report, so you can pick replacements.
+The download button beside a workspace saves it as JSON, with its tuning. **Import a workspace
+file** adds it as a new workspace and switches to it. Radios that are present open with the saved
+settings. Missing ones stay disconnected and show *radio not connected*, so you can pick
+replacements.
 
 ## Templates
 
-Select a Device, then open **Library → Templates**. A template retunes that radio, sets its rate,
-and adds channels and outputs. Templates the radio cannot handle are greyed out.
+Select a Device, or have only one, then open **Library → Templates** and press **Apply**. A
+template retunes that radio, sets its rate, and adds channels and outputs. Templates the radio
+cannot run are greyed out.
 
 Undo removes the added nodes but leaves the radio's new frequency and rate.
 
 ## Presets
 
-Save a preset once a workspace is set up and tuned. Applying it restores the nodes and the radio
-settings. The apply report lists anything it could not restore.
+A preset saves every open radio as it is now: its settings and its channels. Applying it puts them
+back on the matching radios open in the active workspace. It does not add or remove nodes.
 
 ## Bookmarks and band plans
 
-A bookmark saves the selected Device's or channel's frequency and tunes it back.
+**Bookmarks** saves the selected Device's or channel's frequency under a label and tunes it back.
 
-**Bands** picks your band-plan region and searches its allocations. A hit tunes the selected
-Device, or the selected channel, moving its radio if needed. Turn on the Scope's band ruler to
-browse allocations: hover for details, click to tune.
-
-The region is picked from your location when the page is on HTTPS or localhost. You can always
-pick it by hand.
+**Bands** picks the workspace's band-plan region and searches its allocations. The default is ITU
+Region 1. A hit tunes the selected Device, or the selected channel, moving its radio if needed.
+**Ruler** in Bands, or **Band plan** in a Scope's settings, draws allocations on every Scope. Hover
+one for details, click it to tune.

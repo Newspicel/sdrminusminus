@@ -7,7 +7,7 @@ way it points. One node can feed many.
 
 | Tab | Source |
 |---|---|
-| Receiver | A serial NMEA GPS on the server. Set the baud rate. |
+| Receiver | A serial or USB NMEA GPS on the server. Set **Port**, **Baud** and **Rate**. |
 | Network | gpsd, default `127.0.0.1:2947` |
 | Fixed | Latitude and longitude you type in |
 | Phone | A paired [phone](phones.md): position and heading |
@@ -15,9 +15,9 @@ way it points. One node can feed many.
 Serial and gpsd sources must be reachable from the server, and reconnect on their own. **Forget
 source** picks a different one.
 
-The node shows the fix, your Maidenhead locator, accuracy, speed, and heading when there is one.
-A lost fix is reported, and old coordinates stop being used. A phone that drops out reads
-**Offline**.
+The node shows the fix, your Maidenhead locator, accuracy, speed, and heading and tilt when the
+source has them. A lost fix is reported, and old coordinates stop being used. A phone that drops
+out reads **Offline**.
 
 ## Heading
 
@@ -36,13 +36,14 @@ An NMEA or gpsd heading older than two seconds is dropped. An [Array](arrays.md#
 
 | Node | Uses position for |
 |---|---|
-| ADS-B | Decoding aircraft positions |
+| ADS-B channel | Decoding aircraft positions |
 | Array | Where the array stands and which way it points |
 | Map | Your station and its GPS trail |
 | Passive radar `tx` | Where the transmitter stands, from a Fixed source |
+| Propagation map | Your end of every path |
 | Recorder | Location in the recording's metadata |
 | Satellite | Pass and Doppler prediction |
 | Signal hunt | Where you stand and which way you point, for sweeps |
 | Signal survey | Where each measurement was taken |
+| Time machine | Location in the capture's metadata |
 | Triangulation | The vehicle to guide |
-| Propagation map | Your station on the map |

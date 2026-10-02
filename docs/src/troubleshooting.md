@@ -10,10 +10,10 @@ It checks drivers, libraries, radio discovery, USB permissions, and storage path
 
 ## The page does not open
 
-- Use the address printed after `SDR-- ready` in the server log.
+- Check the port in the `SDR-- ready` line of the server log.
 - On the server itself, try <http://127.0.0.1:8080>.
-- From another machine, the server must listen on a reachable address, such as
-  `--bind 0.0.0.0:8080`.
+- The desktop app only accepts its own computer. For other machines, run the `sdrmm` server. It
+  listens on `0.0.0.0:8080` unless `--bind` says otherwise.
 - Check the firewall and any container port mapping.
 - Behind a reverse proxy, serve SDR-- at the root. Path prefixes do not work.
 - With TLS on, use `https://`.
@@ -33,13 +33,14 @@ SDRMM_LINUX_GRAPHICS=safe sdrmm-desktop
 | `safe` | Turns off DMABUF and accelerated compositing. The waterfall may run slower. |
 | `off` | Changes nothing |
 
-Your own `WEBKIT_*` variables win. If the window still fails, run `sdrmm --bind 127.0.0.1:8080`
-and use a browser.
+For the AppImage, put the variable before the AppImage path. Your own `WEBKIT_*` variables win. If
+the window still fails, run the [portable server](getting-started/install.md#portable-server) with
+`--bind 127.0.0.1:8080` and use a browser.
 
 ## The token is rejected
 
 The browser forgets a rejected token and asks again. Enter the one the server is using now. API
-clients send `Authorization: Bearer <token>`. WebSocket and download URLs can use `?token=...`.
+clients send `Authorization: Bearer <token>`. URLs can carry `?token=...` instead.
 
 ## A radio is missing
 
@@ -57,13 +58,13 @@ See [Radios](hardware.md) for each radio's requirements.
 
 ## A radio is plugged in but its node stays disconnected
 
-The node waits for the exact radio it saved, by serial number. To use a different one, press
-**Forget this radio** and pick the new one.
+The node waits for the exact radio it saved, by serial number. If it shows **Open radio**, press it.
+To use a different radio, press **Forget radio** and pick the new one.
 
 ## Spectrum works but audio is silent
 
-- Wire channel `audio` to a Speaker and start it.
-- Click the page once. Browsers block audio until you do.
+- Wire channel `audio` to a Speaker and press play.
+- If the Speaker shows **Resume audio**, press it. Browsers block audio until you click.
 - Drag the squelch handle left. Far left turns it off.
 - Check the channel sits on the signal and inside the Device's window.
 - Check tab mute, system volume, and the output device.
@@ -93,8 +94,8 @@ Drops damage audio, spectrum, recordings, and decoding.
   [USB 2](https://hackrf.readthedocs.io/en/stable/synchronization_checklist.html), and a shared
   hub can lose samples before any counter sees it.
 
-Developers can measure capture health on real radios, see
-[hardware capture tests](development/building.md#hardware-capture-tests).
+Developers can measure loss on real radios with the
+[capture health tests](development/hardware-tests.md#capture-health).
 
 ## Recordings do not appear
 

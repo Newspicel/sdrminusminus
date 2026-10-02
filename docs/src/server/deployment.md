@@ -1,7 +1,8 @@
 # Deployment
 
 Put the server next to the antenna and connect from a browser anywhere. Only audio, decoded data,
-and display frames cross the network; raw IQ stays on the server.
+and display frames cross the network; raw IQ stays on the server unless you
+[export it](../user-guide/network-iq.md).
 
 ## Docker Compose
 
@@ -10,12 +11,16 @@ On Linux:
 ```sh
 git clone https://github.com/Newspicel/sdrmm.git
 cd sdrmm
+docker compose pull
 docker compose up -d
 ```
 
-Open `http://<host>:8080`. The service restarts on its own and keeps its database, recordings,
-and certificate under `/data` in the `sdrmm-data` volume. Keep and back up that volume. Use the
-`:nightly` tag only to test unreleased changes.
+Open `http://<host>:8080`. The service restarts automatically and keeps `sdrmm.db`, `recordings`
+and the self-signed certificate in `tls` under `/data`, in the `sdrmm-data` volume. Keep and back
+up that volume.
+
+The image is `ghcr.io/newspicel/sdrmm`. `:latest` is the newest release; version tags such as
+`:2.0` pin one. Use `:nightly` only to test unreleased changes.
 
 ### USB devices
 
@@ -36,8 +41,8 @@ host. `46` is usually `plugdev` on Debian and Ubuntu. Check with:
 stat -c '%g %G %a' /dev/bus/usb/*/*
 ```
 
-If the radio belongs to group `0`, install its udev rules on the host first. **Check hardware**
-shows ownership from inside the container.
+If the radio belongs to group `0`, install its udev rules on the host, or add `"0"` to
+`group_add`. **Check hardware** shows ownership from inside the container.
 
 ### SoapySDR modules
 
@@ -82,7 +87,7 @@ services:
 
 ### HTTPS
 
-The simplest option is a [tunnel](tunnels.md). To use your own certificate, mount it read-only:
+A [tunnel](tunnels.md) needs no certificate. To use your own, mount it read-only:
 
 ```yaml
 volumes:
@@ -97,6 +102,19 @@ targets. For a self-signed certificate, name the host clients use:
 ```yaml
 command: ["--bind", "0.0.0.0:8080", "--tls-self-signed", "--tls-name", "radio.example"]
 ```
+
+### Phones
+
+[Allow phones](configuration.md#phones) opens port `8443` inside the container. Publish it too:
+
+```yaml
+ports:
+  - "8080:8080"
+  - "8443:8443"
+```
+
+The container sees only its own addresses, so the QR code lists hosts the phone cannot reach. Add
+the phone with **Manual** and the host's address instead.
 
 ## As a system service
 
@@ -117,13 +135,7 @@ Stop it with a normal termination signal so recordings can finish. Set `SDRMM_TO
 Test the packaged build with your radio:
 
 1. Save the `sdrmm --doctor` report.
-2. Stream for 30 minutes and check the drop counter, audio, and spectrum.
+2. Stream for 30 minutes and check **Drops**, audio, and spectrum.
 3. Try tuning, gain, rate, and every control you plan to use.
 4. Unplug and replug the radio. The workspace should pick it up again.
 5. Record a short capture and play it back.
-
-## Radios on other machines
-
-A Device node can open [network radios](../hardware.md#network-radios) such as `rtl_tcp`,
-SpyServer, SDRconnect, and iiod directly. For SoapyRemote, run `SoapySDRServer` next to the
-radio and install SoapyRemote where SDR-- runs; the radio then appears in the normal list.

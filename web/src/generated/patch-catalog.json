@@ -13,7 +13,7 @@
           "multi": false,
           "condition": "device_is_tx_capable",
           "repeat": "per_tx_stream",
-          "note": "reserved: transmit is not built (), so nothing in this build emits a signal to key a radio with"
+          "note": "reserved: transmit is not built, so nothing in this build emits a signal to key a radio with"
         },
         {
           "name": "iq",

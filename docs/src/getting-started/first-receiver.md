@@ -22,19 +22,16 @@ Device iq   → WFM iq
 WFM audio   → Speaker audio
 ```
 
-Set the WFM dial to a station you know is on air locally. The Device follows the channel on its
-own, so you do not need to tune the radio. See [Tuning](../user-guide/tuning.md).
+Set the WFM dial to a local station. The Device follows the channel, so you never tune the radio
+itself. See [Tuning](../user-guide/channels.md#tuning).
 
 ## 3. Listen
 
-Start the Speaker. If it stays silent:
+Press play on the Speaker. Adjust the Device gain until the station stands clearly above the noise
+without clipping.
 
-- Click the page once. Browsers block audio until you do.
-- Drag the channel's squelch handle far left to turn it off.
-- Check the channel marker sits on the station in the Scope.
-
-Adjust the Device gain until the station stands clearly above the noise without clipping. More
-help: [silent audio](../troubleshooting.md#spectrum-works-but-audio-is-silent).
+Silent? Drag the WFM squelch handle far left, and press **Resume audio** if the Speaker shows it.
+More in [Troubleshooting](../troubleshooting.md#spectrum-works-but-audio-is-silent).
 
 ## 4. Station name and text
 
@@ -44,7 +41,7 @@ the station sends them and the signal is strong enough.
 ## 5. Arrange
 
 Select a node and press `p` to pin it to the Rack. Press `v` to switch between Patch and Rack.
-Everything saves on its own.
+Changes save automatically.
 
 ## Next
 

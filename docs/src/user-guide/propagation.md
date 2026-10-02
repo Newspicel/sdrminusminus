@@ -13,16 +13,18 @@ On opening, the map loads the last six hours of logged decodes.
 
 ## Layers
 
+**Map** picks the layer. **Paths** draws lines on top.
+
 | Layer | Shows |
 |---|---|
 | Activity | Estimated reflection points, weighted by count and age |
 | MUF | Estimated MUF lower bound per Maidenhead square |
-| Paths | Great-circle paths by station and band. Off by default. |
+| Paths | Great-circle paths, one per grid square and band. Off by default. |
 
-Only messages with a locator add a path. Reports and `73` usually do not.
+Only messages with a locator count. Reports and `73` usually have none.
 
 Each path is split into hops. A one-hop path reflects at its midpoint. Points lose half their
-weight every **Half-life**, from five minutes to twelve hours.
+weight every **Half-life**, from five minutes to twelve hours (default 30 minutes).
 
 ## Measured MUF
 
@@ -40,7 +42,7 @@ Read the result as a lower bound:
 
 - Paths under 500 km count as activity but not towards MUF.
 - No decodes on a band does not mean the band was closed.
-- Layer height matters. Use 300 km for F2, 110 km for sporadic E.
+- Layer height matters. Set **Height** to 300 km (the default) for F2, 110 km for sporadic E.
 
 ## Ionosondes
 

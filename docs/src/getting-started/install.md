@@ -35,7 +35,7 @@ then run it:
 ```
 
 On Windows, run `sdrmm.exe`. Open <http://localhost:8080> on the server, or
-`http://<server>:8080` from another computer.
+`http://<server>:8080` from another computer. `--bind` picks another address or port.
 
 The server listens on every network interface with no password. Set up
 [a token and HTTPS](../server/configuration.md) before untrusted devices can reach it.
@@ -69,7 +69,7 @@ sudo apt update
 sudo apt install sdrmm-app
 ```
 
-APT and DNF install the desktop app. For the `sdrmm` server, use the
+APT and DNF install the desktop app. For the `sdrmm` server, use [Homebrew](#homebrew) or the
 [portable server](#portable-server).
 
 ## DNF
@@ -90,7 +90,7 @@ nix --extra-experimental-features 'nix-command flakes' \
 sdrmm-desktop
 ```
 
-The flake exports the package as `sdrmm-desktop`, `sdrmm`, and `default`. From a checkout,
+The flake exports the desktop app as `sdrmm-desktop`, `sdrmm`, and `default`. From a checkout,
 `nix build` produces `result/bin/sdrmm-desktop`.
 
 Radios without a built-in driver need SoapySDR modules, picked with `soapyPlugins`. For SDRplay,
@@ -115,17 +115,22 @@ On Linux:
 ```sh
 git clone https://github.com/Newspicel/sdrmm.git
 cd sdrmm
+docker compose pull
 docker compose up -d
 ```
+
+Without the pull, Compose builds the image from the checkout.
 
 Open <http://localhost:8080>. Data lives in the `sdrmm-data` volume. For USB radios, tokens, and
 HTTPS, see [Deployment](../server/deployment.md#docker-compose).
 
 ## Stable or nightly
 
-Use a stable release. The desktop app checks for stable updates at startup and never moves to a
-nightly on its own. The [nightly release](https://github.com/Newspicel/sdrmm/releases/tag/nightly)
-follows `main` and may change saved data without a migration.
+Use a stable release. The desktop app checks for updates at startup and asks before installing.
+On Linux only the AppImage updates itself; APT, DNF, and Nix installs update through the package
+manager. The [nightly release](https://github.com/Newspicel/sdrmm/releases/tag/nightly) follows
+`main` and never updates itself. A database a newer build has opened does not open in an older
+one.
 
 ## Next
 

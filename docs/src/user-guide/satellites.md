@@ -8,7 +8,7 @@ shift as it passes, so the decoder never has to chase the carrier.
 1. Add [GPS position](position.md). A fixed position is fine for a station that never moves.
 2. Add **Satellite** and wire GPS `position` to its `position`.
 3. Search by name or NORAD number, or paste element lines.
-4. Pick a transmitter, or type the downlink.
+4. Pick a transmitter in **Signal**, or pick **Own frequency** and set the downlink.
 5. Wire Satellite `control` to each decoder's `control`.
 
 On auto tuning the radio follows the decoder, as it does for a scanner.
@@ -18,10 +18,11 @@ On auto tuning the radio follows the decoder, as it does for a scanner.
 | Readout | Shows |
 |---|---|
 | Look | Azimuth and elevation |
+| Range | Distance to the satellite |
 | Doppler | The shift being corrected, and how fast it changes |
 | Send on | The Doppler-corrected uplink, if the transmitter has one |
-| Next pass | Time until rise, or until set during a pass |
-| Elements | Age of the orbit data. Refresh when it turns yellow. |
+| Next pass | Time until rise, or until set during a pass, with peak elevation |
+| Elements | Age of the orbit data. Warns after 7 days; press **Refresh elements**. |
 
 Orbits come from CelesTrak and transmitters from SatNOGS DB. Both are cached for two hours.
 

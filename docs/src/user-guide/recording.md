@@ -20,28 +20,32 @@ Decoded messages are not recordings. For those, wire `events` to a **Decoder log
 ## Record IQ
 
 Wire Device `iq` to a **Recorder**, press **Record**, then **Stop**. On a multi-lane radio the
-wired port picks the lane. Wire GPS `position` to store the location.
+wired port picks the lane. Wire GPS `position` to store the location. The sample rate is locked
+while recording.
 
 A clean server shutdown finishes open recordings. Killing the process can leave one incomplete.
 
-## Record an array
+## Time machine
 
-**Rec** on an [Array](arrays.md) records every lane into one SigMF collection: a
-`.sigmf-collection` file that ties one recording per lane together, with the geometry, tier and
-noise source windows. **Stop** ends it. **Library → Recordings** lists the collection once, with
-its lane count.
+Capture a signal after it happened:
 
-Press **Calibrate** while recording. Playback calibrates from the recorded noise windows.
+1. Wire Device `iq` to **Time machine**, and GPS `position` if you have one.
+2. Set **History**, 1 to 120 seconds (default 10), and press **Arm**.
+3. Press **Capture** to save the buffer and keep recording live.
+4. **Stop** ends the file and stays armed. **Disarm** frees the memory.
+
+The buffer uses `seconds × sample rate × 8` bytes, up to 1 GiB. **Memory** shows it. The sample
+rate is locked while armed. Retuning starts a new segment in the same recording.
 
 ## Record a channel
 
 **Baseband recorder** keeps a channel's IQ after filtering and before squelch. The files are much
 smaller than full Device IQ and can be played back like any other recording. Changing the mode or
-the Device rate, or removing the channel, ends the file.
+the Device rate starts a new file. Removing the channel ends it.
 
-**Audio recorder** keeps what reaches it, after squelch and any Audio FX it is wired behind. Closed squelch writes
-silence so timing stays intact. Mode and rate changes do not stop it. The file stays playable even
-if the server stops mid-recording.
+**Audio recorder** keeps what reaches it, after squelch and any Audio FX it is wired behind.
+Closed squelch writes silence so timing stays intact. Mode and rate changes do not stop it. The
+file stays playable even if the server stops mid-recording.
 
 Both recorders take several channels and write one file per wired input.
 
@@ -65,19 +69,17 @@ What makes a call:
 An analog channel with squelch off has no calls. Use the Audio recorder for continuous audio.
 Calls longer than 10 minutes continue in a new file. Encrypted calls have no audio to save.
 Several channels can share one Event output. Add an **Event filter** between them to skip short
-calls or keep certain talkgroups.
+calls or keep certain talkgroups. A [Spectrum monitor](scanning.md#monitor-a-band) wired here
+saves its clips the same way.
 
-## Time machine
+## Record an array
 
-Capture a signal after it happened:
+**Rec** on an [Array](arrays.md) records every lane into one SigMF collection: a
+`.sigmf-collection` file that ties one recording per lane together, with the geometry, tier and
+noise source windows. **Stop** ends it. **Library → Recordings** lists the collection once, with
+its lane count.
 
-1. Wire Device `iq` to **Time machine**, and GPS `position` if you have one.
-2. Set how many seconds to keep and press **Arm**.
-3. Press **Capture** to save the buffer and keep recording live.
-4. **Stop** ends the file and stays armed. **Disarm** frees the memory.
-
-The buffer uses `seconds × sample rate × 8` bytes, up to 1 GiB. The node shows both. The sample
-rate is locked while armed. Retuning starts a new segment in the same recording.
+Press **Calibrate** while recording. Playback calibrates from the recorded noise windows.
 
 ## Play a recording
 
@@ -99,15 +101,16 @@ recording ends it keeps the last calibration.
 
 ## Tags and notes
 
-In **Library → Recordings**, choose **Annotate** to add comma-separated tags and a note. Search
-covers names, tags, and notes. Annotations live in the SigMF metadata, so they travel with the
-files.
+In **Library → Recordings**, press the pencil to give a recording a name, comma-separated tags,
+and a note. Search covers names, tags, and notes. Annotations live in the SigMF metadata, so they
+travel with the files.
 
 ## Download
 
-Download IQ as the original SigMF archive or as a stereo float WAV with I and Q as channels. WAV
-keeps the samples but not all metadata. An array collection downloads as one SigMF archive with
-every lane, and has no WAV. A failed download aborts instead of handing you a truncated file.
+Download IQ as **.sigmf**, the original archive, or **.wav**, a stereo float WAV with I and Q as
+channels. The WAV keeps only the centre frequency and start time from the metadata. An array
+collection downloads as one SigMF archive with every lane, and has no WAV. A failed download
+aborts instead of handing you a truncated file.
 
 ## Where files go
 

@@ -76,6 +76,7 @@ sdrmm-desktop`,
       {
         lines: `git clone https://github.com/Newspicel/sdrmm.git
 cd sdrmm
+docker compose pull
 docker compose up -d`,
       },
     ],

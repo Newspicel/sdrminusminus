@@ -65,7 +65,7 @@ const CATALOG: PatchCatalog = {
           direction: "in",
           multi: false,
           condition: "device_is_tx_capable",
-          note: "reserved: transmit is not built ()",
+          note: "reserved: transmit is not built",
           repeat: "per_tx_stream",
         },
         { name: "iq", port_type: "iq", direction: "out", multi: true, repeat: "per_rx_stream" },

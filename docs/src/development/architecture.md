@@ -41,22 +41,24 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-cps` | Codeplug reading, writing, and conversion |
 | `sdrmm-test-support` | Allocation and timing helpers for tests |
 | `sdrmm-engine` | Device supervision, channelization, scanning, streams, recording, and state snapshots |
-| `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, phones, and embedded assets |
+| `sdrmm-tunnel` | Outbound relay client, device key, and pairing for app.sdrmm.com |
+| `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, phones, remote access, and embedded assets |
 | `sdrmm-mobile-core` | Pairing, pinned TLS client, missions, and pose fusion for the phone apps |
 
 `apps/sdrmm` is the CLI and owns the process. `apps/desktop` starts the same server on a random
 loopback port and opens it in a Tauri window. Both probe SoapySDR in a short-lived child process.
-`apps/ios` and `apps/android` are native phone apps on `sdrmm-mobile-core`. It depends on `wire`
-and networking only, never on the engine or LGPL code.
+`apps/ios` and `apps/android` are native phone apps on `sdrmm-mobile-core`.
 
 The dependency rules:
 
 - `dsp` does no I/O and depends on no project crate.
 - `modem` builds reusable modulation algorithms on `dsp` only.
-- `channels` depends on `dsp`, `modem`, and `wire`.
-- Measurement tooling lives in test-support crates, outside the application graph.
+- `channels` depends on `dsp`, `modem`, `wire`, and `codec2`.
+- `mobile-core` depends on `wire` only. Phone builds pull no engine, server, DSP, USB, FFmpeg,
+  codec2, or SQLite crate.
+- `test-support` and `modem-test-support` never reach the `sdrmm` dependency graph.
 
-`cargo xtask check` enforces them.
+`cargo xtask check` enforces the dependency rules.
 
 ## One source of truth for wire types
 
@@ -77,7 +79,7 @@ It may block and allocate.
 
 Media and recording data leave DSP through preallocated single-producer, single-consumer buffer
 pools. Workers turn them into network payloads. A full queue never blocks DSP: lost media is
-reported and recordings fail loudly. Some decoders still allocate for variable-size results.
+reported and recordings fail loudly. Some decoders allocate for variable-size results.
 
 Spectrum, audio, and video travel as binary WebSocket frames; browser audio is Opus. Decoder
 events are typed JSON. After a WebSocket invalidation, clients fetch durable state over REST.
@@ -159,11 +161,10 @@ Some decoder constants are copied from the standards:
 Sources: ETSI EN 300 401 (DAB), TS 102 563 (DAB+), EN 300 421 (DVB-S), EN 302 307-1 and -2
 (DVB-S2/S2X), EN 300 744 (DVB-T), EN 302 755 (DVB-T2), TS 102 606 (GSE), and ES 201 980 (DRM).
 
-The DVB-S2/S2X tables are generated from and
-checked against the ETSI PDF text by `s2x_tables.py` and `dvbs2_spec_check.py` in
-`crates/modem-test-support/scripts/`. `dvbt_tables.py` generates the DVB-T and DVB-T2 tables the
-same way. CI runs all three. The VL-SNR seed and Walsh-Hadamard rows were
-typed from the standard.
+`s2x_tables.py` and `dvbs2_spec_check.py` in `crates/modem-test-support/scripts/` generate the
+DVB-S2/S2X tables from the ETSI PDF text and check them against it. `dvbt_tables.py` does the same
+for DVB-T and DVB-T2. The CI `etsi` job runs all three. The VL-SNR seed and Walsh-Hadamard rows
+are typed from the standard.
 
 Tests catch transcription errors by checking independent properties: puncturing density,
 polynomial roots, published CRC values, and parity of encoded words.

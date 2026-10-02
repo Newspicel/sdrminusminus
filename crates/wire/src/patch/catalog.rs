@@ -152,7 +152,7 @@ fn fixed_ports(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Tx, In, false, DeviceIsTxCapable)
                 .repeated(PortRepeat::PerTxStream)
                 .noted(
-                    "reserved: transmit is not built (), so nothing in this build emits \
+                    "reserved: transmit is not built, so nothing in this build emits \
                      a signal to key a radio with",
                 ),
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
