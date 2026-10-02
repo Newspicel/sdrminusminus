@@ -1152,54 +1152,6 @@ async fn datv_qpsk_lock_reaches_the_decoded_stream() {
     assert_eq!(status.symbol_rate, Some(250_000.0));
 }
 
-fn drm30_mode_b_fixture() -> Vec<Complex<f32>> {
-    let mut baseband = Vec::new();
-    let mut frame = 0usize;
-    while baseband.len() < 48_000 {
-        let mut state = 0x6d2b_79f5u32 ^ frame as u32;
-        let carriers: Vec<_> = (-96i32..=96)
-            .step_by(6)
-            .filter(|&bin| bin != 0)
-            .map(|bin| {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                let symbol = match state & 3 {
-                    0 => Complex::new(1.0, 1.0),
-                    1 => Complex::new(-1.0, 1.0),
-                    2 => Complex::new(-1.0, -1.0),
-                    _ => Complex::new(1.0, -1.0),
-                };
-                (bin, symbol)
-            })
-            .collect();
-        let scale = (carriers.len() as f32).sqrt();
-        let useful: Vec<_> = (0..1_024)
-            .map(|i| {
-                carriers
-                    .iter()
-                    .map(|&(bin, symbol)| {
-                        symbol
-                            * Complex::from_polar(
-                                1.0,
-                                std::f32::consts::TAU * bin as f32 * i as f32 / 1_024.0,
-                            )
-                    })
-                    .sum::<Complex<f32>>()
-                    * (0.8 / scale)
-            })
-            .collect();
-        baseband.extend_from_slice(&useful[768..]);
-        baseband.extend_from_slice(&useful);
-        frame += 1;
-    }
-    baseband.truncate(48_000);
-    baseband
-        .into_iter()
-        .flat_map(|sample| std::iter::repeat_n(sample, 4))
-        .collect()
-}
-
 #[tokio::test]
 async fn drm30_lock_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
@@ -1207,8 +1159,8 @@ async fn drm30_lock_reaches_the_decoded_stream() {
     let device = plant(
         dir.path(),
         "drm30-mode-b",
-        drm30_mode_b_fixture(),
-        192_000.0,
+        synth::drm::signal(synth::drm::defaults(synth::drm::Robustness::B), 3),
+        synth::drm::RATE_HZ,
     );
     let record = decode_first(
         &engine,

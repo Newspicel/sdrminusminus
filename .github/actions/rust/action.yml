@@ -84,3 +84,4 @@ runs:
       with:
         shared-key: ${{ inputs.cache }}
         save-if: ${{ inputs.save }}
+        cache-on-failure: true

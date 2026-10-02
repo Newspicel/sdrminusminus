@@ -10,11 +10,12 @@ use crate::drm::{
     coding::{Plan, Qam},
     fac::{Fac, FacService, fac_bits, fac_rate},
     mlc,
-    mode::Robustness,
     msc::{CellInterleaver, MscConfig, plan as msc_plan},
     sdc::{self, Audio, Multiplex, Sdc, Stream},
     text,
 };
+
+pub use crate::drm::mode::Robustness;
 
 pub const RATE_HZ: f64 = 192_000.0;
 
