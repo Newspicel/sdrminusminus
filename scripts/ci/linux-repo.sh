@@ -13,7 +13,6 @@ test -e "${rpms[0]}" || { echo "no .rpm in $packages" >&2; exit 1; }
 
 rm -rf "$out/deb" "$out/rpm"
 mkdir -p "$out/deb/pool/main" "$out/rpm"
-touch "$out/.nojekyll"
 gpg --batch --yes --armor --export "$key" > "$out/key.asc"
 gpg --batch --yes --export "$key" > "$out/key.gpg"
 
@@ -43,8 +42,8 @@ cp "${rpms[@]}" "$out/rpm/"
 rpmsign --define "_gpg_name $key" --define "__gpg $(command -v gpg)" --addsign "$out"/rpm/*.rpm
 createrepo_c "$out/rpm"
 gpg --batch --yes --local-user "$key" --armor --detach-sign "$out/rpm/repodata/repomd.xml"
-cat > "$out/rpm/sdrminusminus.repo" <<EOF
-[sdrminusminus]
+cat > "$out/rpm/sdrmm.repo" <<EOF
+[sdrmm]
 name=SDR--
 baseurl=$url/rpm
 enabled=1
@@ -53,4 +52,4 @@ repo_gpgcheck=1
 gpgkey=$url/key.asc
 EOF
 
-find "$out" -type f -not -path '*/.git/*' | sort
+find "$out" -type f | sort

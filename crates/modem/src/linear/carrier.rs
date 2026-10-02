@@ -36,23 +36,22 @@ impl PhaseDetector {
             Self::MthPower { m } => {
                 let reference = unit_power(table.points()[0], m);
                 let stripped = unit_power(y, m);
-                if reference.norm() <= 0.0 || stripped.norm() <= 0.0 {
+                if reference.norm_sqr() <= 0.0 || stripped.norm_sqr() <= 0.0 {
                     return 0.0;
                 }
-                (stripped * reference.conj()).arg() / f64::from(m)
+                f64::from(fast_arg(stripped * reference.conj())) / f64::from(m)
             }
         }
     }
 }
 
-fn unit_power(y: Complex<f32>, m: u32) -> Complex<f64> {
-    let y = Complex::new(f64::from(y.re), f64::from(y.im));
-    let norm = y.norm();
-    if norm <= 0.0 {
+fn unit_power(y: Complex<f32>, m: u32) -> Complex<f32> {
+    let norm = y.norm_sqr().sqrt();
+    if norm <= 0.0 || !norm.is_finite() {
         return Complex::new(0.0, 0.0);
     }
     let unit = y / norm;
-    let mut acc = Complex::new(1.0f64, 0.0);
+    let mut acc = Complex::new(1.0f32, 0.0);
     for _ in 0..m {
         acc *= unit;
     }
@@ -67,7 +66,7 @@ pub struct CarrierLoop {
     phase: f64,
     fll_gain: f64,
     fll_freq: f64,
-    last_stripped: Option<Complex<f64>>,
+    last_stripped: Option<Complex<f32>>,
 }
 
 impl CarrierLoop {
@@ -178,11 +177,11 @@ impl CarrierLoop {
             return 0.0;
         };
         let stripped = unit_power(y, m);
-        if stripped.norm() <= 0.0 {
+        if stripped.norm_sqr() <= 0.0 {
             return self.fll_freq;
         }
         if let Some(previous) = self.last_stripped {
-            let rotation = (stripped * previous.conj()).arg() / f64::from(m);
+            let rotation = f64::from(fast_arg(stripped * previous.conj())) / f64::from(m);
             self.fll_freq = (self.fll_freq + self.fll_gain * rotation).clamp(
                 -TAU * FREQ_LIMIT_CYCLES_PER_SYMBOL,
                 TAU * FREQ_LIMIT_CYCLES_PER_SYMBOL,

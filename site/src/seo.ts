@@ -1,7 +1,7 @@
 export const SITE = "https://sdrmm.com";
 export const NAME = "SDR--";
 export const ALTERNATE_NAMES = ["SDRmm", "SDR minus minus", "sdrminusminus"];
-export const REPOSITORY = "https://github.com/Newspicel/sdrminusminus";
+export const REPOSITORY = "https://github.com/Newspicel/sdrmm";
 export const SHARE_IMAGE = { path: "/og.png", width: 1200, height: 630 } as const;
 
 export const DOCS = "/docs/";

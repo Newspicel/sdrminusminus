@@ -17,17 +17,14 @@ use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 use num_complex::Complex;
 
 mod architecture;
-mod aur;
 mod bandplan;
 mod ber;
 mod broadcast_fixtures;
 mod bundle;
 mod bundled;
-mod changeset;
 mod compare;
 mod denoise_model;
 mod excerpt;
-mod homebrew;
 mod icons;
 mod ident_matrix;
 mod ios;
@@ -38,11 +35,7 @@ mod nixhash;
 mod replay;
 #[cfg(test)]
 mod site;
-mod sums;
 mod units;
-mod updater;
-
-const HOMEPAGE: &str = "https://sdrmm.com";
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "SDR-- workspace tasks")]
@@ -120,52 +113,8 @@ enum Cmd {
         #[arg(long = "external")]
         external: Vec<String>,
     },
-    SetVersion {
-        version: String,
-    },
-    Changeset {
-        bump: changeset::Bump,
-        summary: String,
-    },
-    Release {
-        #[arg(long)]
-        dry_run: bool,
-    },
-    ReleaseNotes {
-        version: String,
-        #[arg(long)]
-        out: Option<PathBuf>,
-    },
-    UpdaterManifest {
-        #[arg(long)]
-        version: String,
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long)]
-        base_url: String,
-        #[arg(long)]
-        out: Option<PathBuf>,
-    },
-    HomebrewTap {
-        #[arg(long)]
-        version: String,
-        #[arg(long)]
-        sums: PathBuf,
-        #[arg(long)]
-        repo: String,
-        #[arg(long)]
-        out: PathBuf,
-    },
-    Aur {
-        #[arg(long)]
-        version: String,
-        #[arg(long)]
-        sums: PathBuf,
-        #[arg(long)]
-        repo: String,
-        #[arg(long)]
-        out: PathBuf,
-    },
+    #[command(flatten)]
+    Release(xtask_release::Cmd),
     Mobile(mobile::Mobile),
     Ios {
         #[command(subcommand)]
@@ -213,28 +162,7 @@ fn main() -> Result<()> {
             bundled::write_desktop_config(&root(), target.as_deref(), &out)
         }
         Cmd::LinkCheck { path, external } => linkage::check(&path, &external),
-        Cmd::SetVersion { version } => set_version(&root(), &version),
-        Cmd::Changeset { bump, summary } => changeset::add(&root(), bump, &summary),
-        Cmd::Release { dry_run } => changeset::release(&root(), dry_run),
-        Cmd::ReleaseNotes { version, out } => changeset::notes(&root(), &version, out.as_deref()),
-        Cmd::UpdaterManifest {
-            version,
-            dir,
-            base_url,
-            out,
-        } => updater::manifest(&dir, &version, &base_url, out.as_deref()),
-        Cmd::HomebrewTap {
-            version,
-            sums,
-            repo,
-            out,
-        } => homebrew::tap(&sums, &version, &repo, &out),
-        Cmd::Aur {
-            version,
-            sums,
-            repo,
-            out,
-        } => aur::packages(&sums, &version, &repo, &out),
+        Cmd::Release(cmd) => xtask_release::run(&root(), &cmd),
         Cmd::Mobile(args) => mobile::run(&root(), &args),
         Cmd::Ios { action } => ios::run(&root(), &action),
     }
@@ -638,7 +566,7 @@ fn check(root: &Path) -> Result<()> {
     check_baked_in_fixtures(root)?;
     mobile::check(root)?;
     ios::check(root)?;
-    changeset::check(root)?;
+    xtask_release::changeset::check(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
     ensure_web_deps(root)?;
@@ -868,12 +796,13 @@ fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
 /// Tests, smoke runs and screenshots must not reach whatever SoapySDR a developer has
 /// installed, so they are pointed at a library that cannot exist and find none.
 const NO_SOAPY_RUNTIME: (&str, &str) = ("SDRMM_SOAPY_LIBRARY", "/nonexistent/libSoapySDR");
+const NO_SOAPY_TARGET: &str = "target/no-soapy";
 
 fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft".to_string(),
+        "soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,espsdr,ad936x,net-client,gpu-fft".to_string(),
     ]
 }
 
@@ -1235,55 +1164,6 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
     run_against_media(&args, &root.join("apps/desktop"), media.as_deref())
 }
 
-fn set_version(root: &Path, version: &str) -> Result<()> {
-    let version = version.strip_prefix('v').unwrap_or(version);
-    let parts: Vec<&str> = version.split('.').collect();
-    let numeric: Vec<u64> = parts.iter().filter_map(|p| p.parse().ok()).collect();
-    ensure!(
-        parts.len() == 3 && numeric.len() == 3,
-        "`{version}` is not a plain major.minor.patch version, e.g. 0.2.0. \
-         Suffixes are not usable: the Windows MSI bundler cannot express one."
-    );
-    for (value, limit, field) in [
-        (numeric[0], 255, "major"),
-        (numeric[1], 255, "minor"),
-        (numeric[2], 65_535, "patch"),
-    ] {
-        ensure!(
-            value <= limit,
-            "`{version}` has a {field} of {value}: the Windows MSI bundler caps it at {limit}"
-        );
-    }
-
-    let manifest_path = root.join("Cargo.toml");
-    let manifest = std::fs::read_to_string(&manifest_path).context("read Cargo.toml")?;
-    let mut section = "";
-    let mut hits = 0;
-    let mut out = String::with_capacity(manifest.len());
-    for line in manifest.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            section = trimmed;
-        }
-        if section == "[workspace.package]" && trimmed.starts_with("version") {
-            out.push_str(&format!("version = \"{version}\"\n"));
-            hits += 1;
-        } else {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    ensure!(
-        hits == 1,
-        "expected exactly one `version` under [workspace.package] in Cargo.toml, found {hits}"
-    );
-    std::fs::write(&manifest_path, out).context("write Cargo.toml")?;
-
-    run("cargo", &["update", "--workspace", "--offline"], root)?;
-    println!("version: {version}");
-    Ok(())
-}
-
 fn perf(root: &Path) -> Result<()> {
     run(
         "cargo",
@@ -1568,16 +1448,35 @@ fn build_smoke_server(root: &Path) -> Result<()> {
 
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
+    run_with_env(
+        PNPM,
+        &["--dir", "web", "build"],
+        root,
+        &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
+    )?;
     run(
         "cargo",
-        &["build", "-p", "sdrmm", "--no-default-features"],
+        &[
+            "build",
+            "-p",
+            "sdrmm",
+            "--no-default-features",
+            "--target-dir",
+            NO_SOAPY_TARGET,
+        ],
         root,
     )?;
+    let scratch = root.join("web/.e2e-tmp");
+    if scratch.exists() {
+        std::fs::remove_dir_all(&scratch)
+            .with_context(|| format!("remove {}", scratch.display()))?;
+    }
+    broadcast_fixtures::run(&scratch.join("recordings"))?;
     run_with_env(
         PNPM,
         &["--dir", "web", "exec", "playwright", "test"],
         root,
-        &[NO_SOAPY_RUNTIME],
+        &[NO_SOAPY_RUNTIME, ("E2E_PREBUILT", "1")],
     )?;
     Ok(())
 }

@@ -261,7 +261,7 @@ describe("binding", () => {
       nodes: [
         node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
         node("dmr", { kind: "channel", data: { channel_type: "dmr" } }),
-        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto", record_calls: true } }),
+        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto" } }),
         node("log", { kind: "decoder_log" }),
       ],
       edges: [
@@ -295,7 +295,7 @@ describe("binding", () => {
     const g: PatchGraph = {
       nodes: [
         node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
-        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto", record_calls: true } }),
+        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto" } }),
         node("log", { kind: "decoder_log" }),
       ],
       edges: [

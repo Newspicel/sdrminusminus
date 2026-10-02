@@ -60,7 +60,6 @@ describe("eventDetail", () => {
         data: {
           id: 7,
           node: "dmr",
-          source_node: "dmr",
           started_at: "2026-08-16T10:00:00Z",
           ended_at: "2026-08-16T10:00:02Z",
           duration_ms: 2_000,
@@ -657,6 +656,23 @@ describe("eventDetail", () => {
     });
   });
 
+  it("names the detected DAB transmission mode", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dab_plus",
+        locked: true,
+        snr_db: 12,
+        frequency_error_hz: 24_480,
+        transmission_mode: "iii",
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Mode: "III",
+      "Frequency error": "+24480 Hz",
+    });
+  });
+
   it("shows a broadcast acquisition without inventing multiplex metadata", () => {
     const detail = eventDetail({
       kind: "broadcast",
@@ -676,6 +692,22 @@ describe("eventDetail", () => {
       "Symbol rate": "333000 Bd",
     });
     expect(detail.body).toBeNull();
+  });
+
+  it("names the superframe format, Walsh rows and scrambling codes", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dvb_s2",
+        locked: true,
+        snr_db: 12,
+        frequency_error_hz: 0,
+        superframe: { format: 4, sosf: 37, pilot: 9, trailer: 50, reference: 7, payload: 9 },
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Superframe: "format 4, WH 37/9/50, codes 7/9",
+    });
   });
 
   it("carries the APRS fields the packet's monitor line packs away", () => {

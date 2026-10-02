@@ -189,7 +189,8 @@
           "port_type": "events",
           "direction": "out",
           "multi": true,
-          "condition": "channel_is_decoder"
+          "condition": "channel_has_events",
+          "note": "Decoded messages and calls. Analog calls need squelch"
         },
         {
           "name": "video",
@@ -204,7 +205,6 @@
         "kind": "channel",
         "data": {
           "channel_type": "",
-          "record_calls": false,
           "tuning_locked": false
         }
       }
@@ -435,7 +435,6 @@
         "kind": "dmr_trunk",
         "data": {
           "protocol": "auto",
-          "record_calls": true,
           "discovery": {
             "enabled": false,
             "max_probes": 0
@@ -514,6 +513,7 @@
             "denoise": {
               "enabled": false,
               "mode": "spectral",
+              "model": "dpdfnet2",
               "strength": 0.5
             },
             "agc": "off"
@@ -525,7 +525,7 @@
       "kind": "event_output",
       "name": "Event output",
       "category": "output",
-      "summary": "Sends events to other programs",
+      "summary": "Sends events out, saves call audio",
       "ports": [
         {
           "name": "events",

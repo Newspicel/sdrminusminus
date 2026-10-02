@@ -676,7 +676,6 @@ fn virtual_snapshot(key: &str, taps: &[(&str, &str, &str)]) -> sdrmm_wire::Works
             id: (*id).to_string(),
             body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
                 channel_type: (*channel_type).to_string(),
-                record_calls: false,
                 tuning_locked: false,
             }),
             position: sdrmm_wire::Position { x: 400.0, y: 300.0 },

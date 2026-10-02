@@ -62,7 +62,7 @@ const FIXED_CATALOG: &[(&str, &str, &str)] = &[
     (
         "event_output",
         "Event output",
-        "Sends events to other programs",
+        "Sends events out, saves call audio",
     ),
     ("video", "Video", "ATV frames and decoded pictures"),
     ("recorder", "Recorder", "Records a radio's full IQ"),
@@ -142,7 +142,7 @@ pub(super) fn ports_for(kind: &str) -> Vec<PortSpec> {
 
 fn fixed_ports(kind: &str) -> Vec<PortSpec> {
     use PortCondition::{
-        Always, ChannelHasAudio, ChannelHasVideo, ChannelIsDecoder, ChannelNeedsPosition,
+        Always, ChannelHasAudio, ChannelHasEvents, ChannelHasVideo, ChannelNeedsPosition,
         DeviceIsTxCapable,
     };
     use PortDirection::{In, Out};
@@ -178,7 +178,8 @@ fn fixed_ports(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Position, In, false, ChannelNeedsPosition),
             PortSpec::new(Baseband, Out, true, Always),
             PortSpec::new(Audio, Out, true, ChannelHasAudio),
-            PortSpec::new(Events, Out, true, ChannelIsDecoder),
+            PortSpec::new(Events, Out, true, ChannelHasEvents)
+                .noted("Decoded messages and calls. Analog calls need squelch"),
             PortSpec::new(Video, Out, true, ChannelHasVideo),
         ],
         "scope" => vec![PortSpec::new(Iq, In, false, Always)],

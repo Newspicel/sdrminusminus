@@ -4,7 +4,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use sdrmm_channels::{AudioChain, ClickProfile};
+use sdrmm_channels::{AudioChain, ClickProfile, neural_denoise::NeuralDenoiseError};
 use sdrmm_wire::{AudioProcessing, AudioRoute};
 use tokio::sync::{
     broadcast::{self, error::RecvError},
@@ -15,6 +15,7 @@ use crate::{
     EngineError,
     audio::{self, AudioPacket, PcmBlock, PcmPayload},
     audio_recording::AudioRecorderTap,
+    denoise_models::DenoiseModels,
 };
 
 pub(crate) enum FxControl {
@@ -42,13 +43,21 @@ impl FxStream {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct AudioFxHub {
+    models: Arc<DenoiseModels>,
     settings: HashMap<String, watch::Sender<AudioProcessing>>,
     streams: HashMap<AudioRoute, FxStream>,
 }
 
 impl AudioFxHub {
+    pub(crate) fn new(models: Arc<DenoiseModels>) -> Self {
+        Self {
+            models,
+            settings: HashMap::new(),
+            streams: HashMap::new(),
+        }
+    }
+
     pub(crate) fn set(&mut self, node: &str, settings: AudioProcessing) {
         match self.settings.get(node) {
             Some(tx) => {
@@ -137,7 +146,7 @@ impl AudioFxHub {
                         })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let stream = spawn(source()?, stages)?;
+            let stream = spawn(source()?, stages, Arc::clone(&self.models))?;
             self.streams.insert(route.clone(), stream);
         }
         self.streams
@@ -153,6 +162,7 @@ fn stopped() -> EngineError {
 fn spawn(
     source: FxSource,
     settings: Vec<watch::Receiver<AudioProcessing>>,
+    models: Arc<DenoiseModels>,
 ) -> Result<FxStream, EngineError> {
     let (pcm_tx, pcm_rx) = broadcast::channel(source.capacity);
     let (audio_tx, _) = broadcast::channel(audio::AUDIO_CHANNEL_CAP);
@@ -166,7 +176,10 @@ fn spawn(
             .spawn(move || {
                 sdrmm_device::schedule::claim(sdrmm_device::Latency::Interactive);
                 Worker {
-                    stages: settings.into_iter().map(Stage::new).collect(),
+                    stages: settings
+                        .into_iter()
+                        .map(|settings| Stage::new(settings, Arc::clone(&models)))
+                        .collect(),
                     profile: source.profile,
                     pcm_tx,
                     audio_tx,
@@ -189,26 +202,29 @@ fn spawn(
 
 struct Stage {
     settings: watch::Receiver<AudioProcessing>,
+    models: Arc<DenoiseModels>,
+    generation: u64,
     chain: Option<AudioChain>,
 }
 
 impl Stage {
-    fn new(settings: watch::Receiver<AudioProcessing>) -> Self {
+    fn new(settings: watch::Receiver<AudioProcessing>, models: Arc<DenoiseModels>) -> Self {
         Self {
             settings,
+            generation: models.generation(),
+            models,
             chain: None,
         }
     }
 
-    fn prepare(
-        &mut self,
-        channels: u8,
-        profile: ClickProfile,
-    ) -> Result<bool, sdrmm_channels::neural_denoise::NeuralDenoiseError> {
+    fn prepare(&mut self, channels: u8, profile: ClickProfile) -> Result<bool, NeuralDenoiseError> {
         let changed = match self.settings.has_changed() {
             Ok(changed) => changed,
             Err(_) => return Ok(false),
         };
+        let generation = self.models.generation();
+        let changed = changed || generation != self.generation;
+        self.generation = generation;
         let planes = usize::from(channels).max(1);
         let stale = self
             .chain
@@ -218,7 +234,10 @@ impl Stage {
             let settings = self.settings.borrow_and_update().clone();
             match &mut self.chain {
                 Some(chain) => chain.configure(channels, &settings, profile)?,
-                none => *none = Some(AudioChain::new(channels, &settings, profile)?),
+                none => {
+                    let nets = Arc::clone(&self.models);
+                    *none = Some(AudioChain::new(channels, &settings, profile, nets)?);
+                }
             }
         }
         Ok(true)
@@ -305,7 +324,7 @@ impl Worker {
     }
 }
 
-fn report(failed: &mut bool, error: &sdrmm_channels::neural_denoise::NeuralDenoiseError) {
+fn report(failed: &mut bool, error: &NeuralDenoiseError) {
     if !*failed {
         tracing::error!(%error, "audio FX stage failed; its audio passes unprocessed");
         *failed = true;
@@ -383,7 +402,7 @@ mod tests {
     #[test]
     fn a_route_runs_its_channel_audio_through_every_fx_node_in_order() {
         let (tx, _keep) = broadcast::channel(64);
-        let mut hub = AudioFxHub::default();
+        let mut hub = AudioFxHub::new(Arc::default());
         hub.set("a", highpass());
         hub.set(
             "b",
@@ -410,7 +429,7 @@ mod tests {
     #[test]
     fn a_route_through_an_unknown_node_is_refused() {
         let (tx, _keep) = broadcast::channel::<PcmBlock>(8);
-        let mut hub = AudioFxHub::default();
+        let mut hub = AudioFxHub::new(Arc::default());
         let refused = hub.subscribe_pcm(&route(&["ghost"]), || source(&tx));
         assert!(matches!(refused, Err(EngineError::Audio(_))));
     }
@@ -418,7 +437,7 @@ mod tests {
     #[test]
     fn a_settings_change_reaches_a_running_route() {
         let (tx, _keep) = broadcast::channel(64);
-        let mut hub = AudioFxHub::default();
+        let mut hub = AudioFxHub::new(Arc::default());
         hub.set("a", AudioProcessing::default());
         let mut rx = hub
             .subscribe_pcm(&route(&["a"]), || source(&tx))
@@ -437,7 +456,7 @@ mod tests {
     #[test]
     fn silence_passes_as_silence_with_its_stamp() {
         let (tx, _keep) = broadcast::channel(64);
-        let mut hub = AudioFxHub::default();
+        let mut hub = AudioFxHub::new(Arc::default());
         hub.set("a", highpass());
         let mut rx = hub
             .subscribe_pcm(&route(&["a"]), || source(&tx))
@@ -456,7 +475,7 @@ mod tests {
     #[test]
     fn removing_a_node_from_the_patch_ends_the_routes_through_it() {
         let (tx, _keep) = broadcast::channel(64);
-        let mut hub = AudioFxHub::default();
+        let mut hub = AudioFxHub::new(Arc::default());
         hub.set("a", AudioProcessing::default());
         let mut rx = hub
             .subscribe_pcm(&route(&["a"]), || source(&tx))
@@ -469,7 +488,7 @@ mod tests {
     #[test]
     fn a_route_nobody_listens_to_stops() {
         let (tx, _keep) = broadcast::channel(64);
-        let mut hub = AudioFxHub::default();
+        let mut hub = AudioFxHub::new(Arc::default());
         hub.set("a", AudioProcessing::default());
         let rx = hub
             .subscribe_pcm(&route(&["a"]), || source(&tx))

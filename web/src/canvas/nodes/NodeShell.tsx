@@ -36,6 +36,7 @@ import {
 } from "../graph";
 import { closeEngineObjects, dropNodes } from "../remove";
 import { movesCanvas, wheelStaysOnFace } from "../wheel";
+import { NodeName } from "./NodeName";
 import { offsetWithin } from "./portAnchor";
 
 const Surface = createContext<"canvas" | "rack">("rack");
@@ -238,9 +239,7 @@ export function NodeShell({
             aria-hidden
             className={`size-[7px] shrink-0 rounded-full ${CATEGORY_STRIP[category]}`}
           />
-          <span className="truncate text-[12.5px] font-semibold tracking-[0.01em] text-ink">
-            {node.label ?? title}
-          </span>
+          <NodeName node={node} title={title} />
           {badge !== undefined && (
             <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{badge}</span>
           )}

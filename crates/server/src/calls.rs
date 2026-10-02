@@ -5,21 +5,19 @@ use std::{
 };
 
 use axum::body::Bytes;
-use sdrmm_dsp::{decim::RealDecimator, fir::design_lowpass};
-use sdrmm_engine::{Engine, PcmBlock, PcmPayload};
-use sdrmm_wire::{
-    DecodedRecord, DecoderEvent, DvFrame, DvFrameKind, EventAudio, ServerEvent, StateScope,
-    VoiceCall,
-};
+use sdrmm_engine::{Engine, PcmBlock};
+use sdrmm_wire::{DvFrame, EventAudio, ServerEvent, StateScope, VoiceCall};
 use tokio::{
     sync::{broadcast::error::RecvError, mpsc, watch},
     task::JoinHandle,
     time::{MissedTickBehavior, interval},
 };
 
-use crate::trunking::{CallBinding, CallPolicy, Recording};
+use crate::trunking::{CallBinding, CallPolicy, Gate, Recording};
 
-const CALL_TIMEOUT: Duration = Duration::from_millis(900);
+mod tracker;
+
+use tracker::{Bindings, Tracker};
 
 const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -27,7 +25,6 @@ const RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
 const STORED_RATE_HZ: u32 = 8_000;
 const DECIMATION: usize = 48_000 / STORED_RATE_HZ as usize;
-const ANTIALIAS_TAPS: usize = 96;
 
 const MAX_CALL_SECONDS: usize = 600;
 const MAX_CALL_SAMPLES: usize = STORED_RATE_HZ as usize * MAX_CALL_SECONDS;
@@ -56,14 +53,14 @@ struct StoredCall {
 
 pub(crate) struct NewCall {
     pub node: String,
-    pub source_node: String,
     pub started_at: String,
     pub ended_at: String,
     pub duration_ms: u64,
     pub device_set: u32,
     pub channel: u32,
     pub freq_hz: f64,
-    pub frame: DvFrame,
+    pub mode: String,
+    pub frame: Option<DvFrame>,
     pub audio_error: Option<String>,
 }
 
@@ -132,25 +129,24 @@ impl Calls {
         let mut inner = self.lock();
         prune(&mut inner);
         inner.next_id += 1;
-        let encrypted = new.frame.encrypted == Some(true);
+        let frame = new.frame.unwrap_or_default();
         let call = VoiceCall {
             id: inner.next_id,
             node: new.node,
-            source_node: new.source_node,
             started_at: new.started_at,
             ended_at: new.ended_at,
             duration_ms: new.duration_ms,
             device_set: new.device_set,
             channel: new.channel,
             freq_hz: new.freq_hz,
-            mode: new.frame.mode,
-            slot: new.frame.slot,
-            color_code: new.frame.color_code,
-            source: new.frame.source,
-            destination: new.frame.destination,
-            group_call: new.frame.group_call,
-            encrypted,
-            emergency: new.frame.emergency == Some(true),
+            mode: new.mode,
+            slot: frame.slot,
+            color_code: frame.color_code,
+            source: frame.source,
+            destination: frame.destination,
+            group_call: frame.group_call,
+            encrypted: frame.encrypted == Some(true),
+            emergency: frame.emergency == Some(true),
             audio: audio.as_ref().map(|_| EventAudio {
                 url: crate::rest::call_audio_path(inner.next_id),
                 media_type: "audio/wav".to_owned(),
@@ -228,57 +224,6 @@ fn evict_audio(inner: &mut StoredCalls) -> bool {
     evicted
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct CallKey {
-    node: String,
-    device_set: u32,
-    channel: u32,
-    slot: Option<u8>,
-}
-
-struct ActiveCall {
-    node: String,
-    started_at: String,
-    started: Instant,
-    last_activity: Instant,
-    freq_hz: f64,
-    frame: DvFrame,
-    audio: CallAudio,
-    audio_error: Option<String>,
-}
-
-struct CallAudio {
-    decimator: RealDecimator,
-    scratch: Vec<f32>,
-    samples: Vec<i16>,
-}
-
-impl CallAudio {
-    fn new(taps: &[f32]) -> Self {
-        Self {
-            decimator: RealDecimator::new(taps, DECIMATION),
-            scratch: Vec::new(),
-            samples: Vec::new(),
-        }
-    }
-
-    fn push(&mut self, input: &[f32]) {
-        self.scratch.clear();
-        self.decimator.process(input, &mut self.scratch);
-        let room = MAX_CALL_SAMPLES - self.samples.len();
-        self.samples.extend(
-            self.scratch
-                .iter()
-                .take(room)
-                .map(|sample| (sample.clamp(-1.0, 1.0) * 32_767.0) as i16),
-        );
-    }
-
-    fn full(&self) -> bool {
-        self.samples.len() >= MAX_CALL_SAMPLES
-    }
-}
-
 enum Input {
     Pcm(u32, u32, Box<PcmBlock>),
     AudioError(u32, u32, String),
@@ -295,13 +240,11 @@ pub(crate) async fn run(
     let mut decoded = strong.subscribe_decoded();
     let mut events = strong.subscribe_events();
     drop(strong);
-    let taps = design_lowpass(ANTIALIAS_TAPS, 0.5 / DECIMATION as f64);
     let (input_tx, mut input_rx) = mpsc::channel(1024);
     let mut audio_tasks: HashMap<(u32, u32), JoinHandle<()>> = HashMap::new();
-    let mut bindings = HashMap::new();
-    let mut active: HashMap<CallKey, ActiveCall> = HashMap::new();
+    let mut tracker = Tracker::new(calls.clone(), engine.clone());
     let mut reconcile_tick = ticker(RECONCILE_INTERVAL);
-    let mut timeout_tick = ticker(Duration::from_millis(200));
+    let mut idle_tick = ticker(Duration::from_millis(200));
     let mut rebind = true;
     loop {
         if rebind {
@@ -309,17 +252,15 @@ pub(crate) async fn run(
             let Some(strong) = engine.upgrade() else {
                 break;
             };
-            bindings = resolve_bindings(&strong, &recording.borrow());
-            reconcile_audio(&strong, &input_tx, &bindings, &mut audio_tasks);
-            finish_unbound(&bindings, &mut active, &calls, &strong);
+            tracker.rebind(resolve_bindings(&strong, &recording.borrow()));
+            reconcile_audio(&strong, &input_tx, &tracker.sources(), &mut audio_tasks);
         }
         tokio::select! {
             received = decoded.recv() => match received {
-                Ok(record) => handle_record(&record, &bindings, &mut active, &calls, &engine, &taps),
-                Err(RecvError::Lagged(count)) => mark_all_audio_errors(
-                    &mut active,
-                    format!("decoder event stream lost {count} record(s)"),
-                ),
+                Ok(record) => tracker.record(&record),
+                Err(RecvError::Lagged(count)) => {
+                    tracker.lost(&format!("decoder event stream lost {count} record(s)"));
+                }
                 Err(RecvError::Closed) => break,
             },
             received = events.recv() => match received {
@@ -334,9 +275,9 @@ pub(crate) async fn run(
                 Err(_) => break,
             },
             input = input_rx.recv() => match input {
-                Some(Input::Pcm(ds, channel, block)) => append_pcm(ds, channel, &block, &mut active),
+                Some(Input::Pcm(ds, channel, block)) => tracker.pcm(ds, channel, &block),
                 Some(Input::AudioError(ds, channel, error)) => {
-                    mark_audio_error(ds, channel, error, &mut active);
+                    tracker.audio_error(ds, channel, &error);
                 }
                 None => break,
             },
@@ -346,13 +287,13 @@ pub(crate) async fn run(
                     strong.emit_scope(StateScope::Calls);
                 }
             }
-            _ = timeout_tick.tick() => finish_timed_out(&mut active, &calls, &engine),
+            _ = idle_tick.tick() => tracker.expire_idle(),
         }
     }
     for (_, task) in audio_tasks {
         task.abort();
     }
-    finish_all(&mut active, &calls, &engine);
+    tracker.finish_all();
 }
 
 fn ticker(period: Duration) -> tokio::time::Interval {
@@ -361,8 +302,8 @@ fn ticker(period: Duration) -> tokio::time::Interval {
     ticker
 }
 
-fn resolve_bindings(engine: &Engine, policy: &CallPolicy) -> HashMap<(u32, u32), Vec<CallBinding>> {
-    let mut resolved: HashMap<(u32, u32), Vec<CallBinding>> = HashMap::new();
+fn resolve_bindings(engine: &Engine, policy: &CallPolicy) -> Bindings {
+    let mut resolved = Bindings::new();
     for system in engine.trunk_systems() {
         if !policy.trunk_systems.contains(&system.node) {
             continue;
@@ -375,6 +316,7 @@ fn resolve_bindings(engine: &Engine, policy: &CallPolicy) -> HashMap<(u32, u32),
                     node: system.node.clone(),
                     device_set: follower.device_set,
                     channel: follower.channel,
+                    gate: Gate::Frames,
                 });
         }
     }
@@ -390,10 +332,9 @@ fn resolve_bindings(engine: &Engine, policy: &CallPolicy) -> HashMap<(u32, u32),
 fn reconcile_audio(
     engine: &Arc<Engine>,
     input_tx: &mpsc::Sender<Input>,
-    bindings: &HashMap<(u32, u32), Vec<CallBinding>>,
+    wanted: &HashSet<(u32, u32)>,
     tasks: &mut HashMap<(u32, u32), JoinHandle<()>>,
 ) {
-    let wanted: HashSet<(u32, u32)> = bindings.keys().copied().collect();
     tasks.retain(|source, task| {
         let keep = wanted.contains(source);
         if !keep {
@@ -401,7 +342,7 @@ fn reconcile_audio(
         }
         keep
     });
-    for source in wanted {
+    for &source in wanted {
         if tasks.contains_key(&source) {
             continue;
         }
@@ -435,248 +376,6 @@ fn spawn_audio(
     })
 }
 
-fn handle_record(
-    record: &DecodedRecord,
-    bindings: &HashMap<(u32, u32), Vec<CallBinding>>,
-    active: &mut HashMap<CallKey, ActiveCall>,
-    calls: &Calls,
-    engine: &Weak<Engine>,
-    taps: &[f32],
-) {
-    if record.origin.is_some() {
-        return;
-    }
-    let DecoderEvent::Dv(frame) = &record.event else {
-        return;
-    };
-    let Some(bound) = bindings.get(&(record.device_set, record.channel)) else {
-        return;
-    };
-    for binding in bound {
-        let key = CallKey {
-            node: binding.node.clone(),
-            device_set: binding.device_set,
-            channel: binding.channel,
-            slot: frame.slot,
-        };
-        match frame.kind {
-            DvFrameKind::Header | DvFrameKind::Voice
-                if frame.source.is_some() || frame.destination.is_some() =>
-            {
-                update_call(key, binding, record, frame, active, calls, engine, taps);
-            }
-            DvFrameKind::Terminator => finish_key(&key, active, calls, engine),
-            _ => {}
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn update_call(
-    key: CallKey,
-    binding: &CallBinding,
-    record: &DecodedRecord,
-    frame: &DvFrame,
-    active: &mut HashMap<CallKey, ActiveCall>,
-    calls: &Calls,
-    engine: &Weak<Engine>,
-    taps: &[f32],
-) {
-    if active
-        .get(&key)
-        .is_some_and(|call| !same_call(&call.frame, frame))
-    {
-        finish_key(&key, active, calls, engine);
-    }
-    let call = active.entry(key).or_insert_with(|| ActiveCall {
-        node: binding.node.clone(),
-        started_at: record.at.clone(),
-        started: Instant::now(),
-        last_activity: Instant::now(),
-        freq_hz: record.freq_hz,
-        frame: frame.clone(),
-        audio: CallAudio::new(taps),
-        audio_error: None,
-    });
-    merge_frame(&mut call.frame, frame);
-    call.last_activity = Instant::now();
-    if call.frame.encrypted == Some(true) {
-        call.audio.samples.clear();
-    }
-}
-
-fn same_call(current: &DvFrame, incoming: &DvFrame) -> bool {
-    fn agrees<T: PartialEq>(current: Option<T>, incoming: Option<T>) -> bool {
-        match (current, incoming) {
-            (Some(current), Some(incoming)) => current == incoming,
-            _ => true,
-        }
-    }
-    agrees(current.slot, incoming.slot)
-        && agrees(current.source, incoming.source)
-        && agrees(current.destination, incoming.destination)
-}
-
-fn merge_frame(current: &mut DvFrame, incoming: &DvFrame) {
-    current.slot = incoming.slot.or(current.slot);
-    current.color_code = incoming.color_code.or(current.color_code);
-    current.source = incoming.source.or(current.source);
-    current.destination = incoming.destination.or(current.destination);
-    current.group_call = incoming.group_call.or(current.group_call);
-    current.encrypted = incoming.encrypted.or(current.encrypted);
-    current.emergency = incoming.emergency.or(current.emergency);
-}
-
-fn append_pcm(
-    device_set: u32,
-    channel: u32,
-    block: &PcmBlock,
-    active: &mut HashMap<CallKey, ActiveCall>,
-) {
-    for (key, call) in active.iter_mut() {
-        if key.device_set != device_set || key.channel != channel {
-            continue;
-        }
-        call.last_activity = Instant::now();
-        if call.frame.encrypted == Some(true) {
-            continue;
-        }
-        if call.audio.full() {
-            call.audio_error
-                .get_or_insert_with(|| format!("audio exceeded the {MAX_CALL_SECONDS} s limit"));
-            continue;
-        }
-        match &block.payload {
-            PcmPayload::Samples(samples) => {
-                let channels = usize::from(block.channels.max(1));
-                if channels == 1 {
-                    call.audio.push(samples);
-                } else {
-                    let mono: Vec<f32> = samples.iter().step_by(channels).copied().collect();
-                    call.audio.push(&mono);
-                }
-            }
-            PcmPayload::Silence(frames) => {
-                let silence = vec![0.0; *frames];
-                call.audio.push(&silence);
-            }
-        }
-    }
-}
-
-fn mark_audio_error(
-    device_set: u32,
-    channel: u32,
-    error: String,
-    active: &mut HashMap<CallKey, ActiveCall>,
-) {
-    for (key, call) in active.iter_mut() {
-        if key.device_set == device_set && key.channel == channel {
-            call.audio_error.get_or_insert_with(|| error.clone());
-        }
-    }
-}
-
-fn mark_all_audio_errors(active: &mut HashMap<CallKey, ActiveCall>, error: String) {
-    for call in active.values_mut() {
-        call.audio_error.get_or_insert_with(|| error.clone());
-    }
-}
-
-fn finish_timed_out(
-    active: &mut HashMap<CallKey, ActiveCall>,
-    calls: &Calls,
-    engine: &Weak<Engine>,
-) {
-    let expired: Vec<CallKey> = active
-        .iter()
-        .filter(|(_, call)| call.last_activity.elapsed() >= CALL_TIMEOUT)
-        .map(|(key, _)| key.clone())
-        .collect();
-    for key in expired {
-        finish_key(&key, active, calls, engine);
-    }
-}
-
-fn finish_unbound(
-    bindings: &HashMap<(u32, u32), Vec<CallBinding>>,
-    active: &mut HashMap<CallKey, ActiveCall>,
-    calls: &Calls,
-    engine: &Engine,
-) {
-    let live: HashSet<(String, u32, u32)> = bindings
-        .values()
-        .flatten()
-        .map(|binding| (binding.node.clone(), binding.device_set, binding.channel))
-        .collect();
-    let removed: Vec<CallKey> = active
-        .keys()
-        .filter(|key| !live.contains(&(key.node.clone(), key.device_set, key.channel)))
-        .cloned()
-        .collect();
-    for key in removed {
-        if let Some(call) = active.remove(&key) {
-            complete(&key, call, calls, engine);
-        }
-    }
-}
-
-fn finish_all(active: &mut HashMap<CallKey, ActiveCall>, calls: &Calls, engine: &Weak<Engine>) {
-    let keys: Vec<CallKey> = active.keys().cloned().collect();
-    for key in keys {
-        finish_key(&key, active, calls, engine);
-    }
-}
-
-fn finish_key(
-    key: &CallKey,
-    active: &mut HashMap<CallKey, ActiveCall>,
-    calls: &Calls,
-    engine: &Weak<Engine>,
-) {
-    let Some(call) = active.remove(key) else {
-        return;
-    };
-    let Some(engine) = engine.upgrade() else {
-        return;
-    };
-    complete(key, call, calls, &engine);
-}
-
-fn complete(key: &CallKey, active: ActiveCall, calls: &Calls, engine: &Engine) {
-    let encrypted = active.frame.encrypted == Some(true);
-    let audio =
-        (!encrypted && !active.audio.samples.is_empty()).then(|| wav(&active.audio.samples));
-    let (call, evicted) = calls.push(
-        NewCall {
-            node: key.node.clone(),
-            source_node: active.node,
-            started_at: active.started_at,
-            ended_at: format!("{:.9}", jiff::Timestamp::now()),
-            duration_ms: active.started.elapsed().as_millis() as u64,
-            device_set: key.device_set,
-            channel: key.channel,
-            freq_hz: active.freq_hz,
-            frame: active.frame,
-            audio_error: active.audio_error,
-        },
-        audio,
-        RETENTION,
-    );
-    engine.publish_decoded(DecodedRecord {
-        origin: None,
-        sinks: Vec::new(),
-        device_set: key.device_set,
-        channel: key.channel,
-        at: call.ended_at.clone(),
-        freq_hz: call.freq_hz,
-        event: DecoderEvent::Call(call),
-    });
-    if evicted {
-        engine.emit_scope(StateScope::Calls);
-    }
-}
-
 fn wav(samples: &[i16]) -> Bytes {
     let data_len = (samples.len() * 2) as u32;
     let mut out = Vec::with_capacity(44 + data_len as usize);
@@ -699,316 +398,4 @@ fn wav(samples: &[i16]) -> Bytes {
 }
 
 #[cfg(test)]
-mod tests {
-    use sdrmm_device::DeviceRegistry;
-    use sdrmm_wire::DvMode;
-
-    use super::*;
-
-    fn new_call(encrypted: bool) -> NewCall {
-        NewCall {
-            node: "calls".to_owned(),
-            source_node: "dmr".to_owned(),
-            started_at: "2026-08-14T10:00:00Z".to_owned(),
-            ended_at: "2026-08-14T10:00:01Z".to_owned(),
-            duration_ms: 1_000,
-            device_set: 1,
-            channel: 2,
-            freq_hz: 451_125_000.0,
-            frame: DvFrame {
-                encrypted: Some(encrypted),
-                ..DvFrame::new(DvMode::Dmr, DvFrameKind::Header)
-            },
-            audio_error: None,
-        }
-    }
-
-    #[test]
-    fn a_plain_channel_binds_for_calls_with_no_trunk_system_present() {
-        let engine = Engine::with_registry(DeviceRegistry::new(), None);
-        let policy = CallPolicy {
-            channels: vec![CallBinding {
-                node: "dmr".to_owned(),
-                device_set: 1,
-                channel: 2,
-            }],
-            ..CallPolicy::default()
-        };
-
-        let bindings = resolve_bindings(&engine, &policy);
-
-        let bound = bindings.get(&(1, 2)).expect("the channel is bound");
-        assert_eq!(bound.len(), 1);
-        assert_eq!(bound[0].node, "dmr");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_binding_that_arrives_without_a_state_event_still_records() {
-        let engine = Arc::new(Engine::with_registry(DeviceRegistry::new(), None));
-        let calls = Arc::new(Calls::default());
-        let (policy, watched) = watch::channel(Recording::default());
-        let task = tokio::spawn(run(Arc::downgrade(&engine), calls.clone(), watched));
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        policy.send_if_modified(|current| {
-            *current = Arc::new(CallPolicy {
-                channels: vec![CallBinding {
-                    node: "dmr".to_owned(),
-                    device_set: 1,
-                    channel: 2,
-                }],
-                ..CallPolicy::default()
-            });
-            false
-        });
-        tokio::time::sleep(RECONCILE_INTERVAL * 2).await;
-        for kind in [
-            DvFrameKind::Header,
-            DvFrameKind::Voice,
-            DvFrameKind::Terminator,
-        ] {
-            engine.publish_decoded(record(kind, 1));
-        }
-
-        let listed = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let listed = calls.list();
-                if !listed.is_empty() {
-                    return listed;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("a binding that no state event announced is still picked up");
-        task.abort();
-
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].node, "dmr");
-    }
-
-    #[test]
-    fn a_conventional_transmission_completes_one_call() {
-        let engine = Engine::with_registry(DeviceRegistry::new(), None);
-        let mut decoded = engine.subscribe_decoded();
-        let calls = Calls::default();
-        let taps = design_lowpass(ANTIALIAS_TAPS, 0.5 / DECIMATION as f64);
-        let bindings = HashMap::from([(
-            (1, 2),
-            vec![CallBinding {
-                node: "dmr".to_owned(),
-                device_set: 1,
-                channel: 2,
-            }],
-        )]);
-        let mut active = HashMap::new();
-        let weak = Arc::downgrade(&engine);
-        for kind in [
-            DvFrameKind::Header,
-            DvFrameKind::Voice,
-            DvFrameKind::Terminator,
-        ] {
-            handle_record(
-                &record(kind, 1),
-                &bindings,
-                &mut active,
-                &calls,
-                &weak,
-                &taps,
-            );
-        }
-
-        assert!(active.is_empty(), "the terminator closes the call");
-        let listed = calls.list();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].node, "dmr", "the channel node owns the call");
-        assert_eq!(listed[0].source_node, "dmr");
-        let announced = decoded
-            .try_recv()
-            .expect("the call reaches the events wire");
-        let DecoderEvent::Call(call) = announced.event else {
-            panic!("a completed call travels as a decoder event");
-        };
-        assert_eq!(call.node, "dmr");
-        assert_eq!(announced.device_set, 1);
-        assert_eq!(announced.channel, 2);
-    }
-
-    #[test]
-    fn wav_is_mono_8k_pcm() {
-        let bytes = wav(&[0, i16::MAX, i16::MIN]);
-        assert_eq!(&bytes[0..4], b"RIFF");
-        assert_eq!(&bytes[8..12], b"WAVE");
-        assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), 8_000);
-        assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 6);
-    }
-
-    #[test]
-    fn encrypted_completion_has_no_audio() {
-        let calls = Calls::default();
-        let (stored, _) = calls.push(new_call(true), None, Duration::from_secs(30));
-        assert!(stored.encrypted);
-        assert!(stored.audio.is_none());
-        assert!(calls.audio(stored.id).is_none());
-        assert_eq!(calls.list().len(), 1);
-    }
-
-    #[test]
-    fn evicting_audio_keeps_the_call_and_says_why() {
-        let calls = Calls::default();
-        let big = Bytes::from(vec![0u8; MAX_STORED_AUDIO_BYTES / 2 + 1]);
-        let mut evictions = 0;
-        for _ in 0..3 {
-            let (_, evicted) =
-                calls.push(new_call(false), Some(big.clone()), Duration::from_secs(30));
-            evictions += usize::from(evicted);
-        }
-        assert!(evictions >= 1, "eviction was never reported");
-        let listed = calls.list();
-        assert_eq!(listed.len(), 3);
-        let evicted = listed.iter().filter(|call| call.audio.is_none()).count();
-        assert!(evicted >= 1, "nothing was evicted over the byte limit");
-        assert!(
-            listed
-                .iter()
-                .filter(|call| call.audio.is_none())
-                .all(|call| call.audio_error.is_some())
-        );
-        let inner = calls.lock();
-        assert!(inner.audio_bytes <= MAX_STORED_AUDIO_BYTES);
-    }
-
-    #[test]
-    fn a_partial_link_control_does_not_split_a_call() {
-        let full = DvFrame {
-            slot: Some(1),
-            source: Some(1001),
-            destination: Some(91),
-            ..DvFrame::new(DvMode::Dmr, DvFrameKind::Voice)
-        };
-        let partial = DvFrame {
-            slot: Some(1),
-            destination: Some(91),
-            ..DvFrame::new(DvMode::Dmr, DvFrameKind::Voice)
-        };
-        assert!(same_call(&full, &partial));
-        let other = DvFrame {
-            slot: Some(1),
-            source: Some(2002),
-            destination: Some(91),
-            ..DvFrame::new(DvMode::Dmr, DvFrameKind::Voice)
-        };
-        assert!(!same_call(&full, &other));
-    }
-
-    #[test]
-    fn the_two_slots_of_one_channel_are_two_calls() {
-        let engine = Engine::with_registry(DeviceRegistry::new(), None);
-        let calls = Calls::default();
-        let taps = design_lowpass(ANTIALIAS_TAPS, 0.5 / DECIMATION as f64);
-        let bindings = HashMap::from([(
-            (1, 2),
-            vec![CallBinding {
-                node: "trunk".to_owned(),
-                device_set: 1,
-                channel: 2,
-            }],
-        )]);
-        let mut active = HashMap::new();
-        let weak = Arc::downgrade(&engine);
-        for slot in [1, 2] {
-            handle_record(
-                &record(DvFrameKind::Header, slot),
-                &bindings,
-                &mut active,
-                &calls,
-                &weak,
-                &taps,
-            );
-        }
-        assert_eq!(active.len(), 2, "the slots merged into one call");
-    }
-
-    #[test]
-    fn one_transmission_becomes_one_completed_call() {
-        let engine = Engine::with_registry(DeviceRegistry::new(), None);
-        let mut decoded = engine.subscribe_decoded();
-        let calls = Calls::default();
-        let taps = design_lowpass(ANTIALIAS_TAPS, 0.5 / DECIMATION as f64);
-        let bindings = HashMap::from([(
-            (1, 2),
-            vec![CallBinding {
-                node: "trunk".to_owned(),
-                device_set: 1,
-                channel: 2,
-            }],
-        )]);
-        let mut active = HashMap::new();
-        let weak = Arc::downgrade(&engine);
-        for kind in [DvFrameKind::Header, DvFrameKind::Voice] {
-            handle_record(
-                &record(kind, 1),
-                &bindings,
-                &mut active,
-                &calls,
-                &weak,
-                &taps,
-            );
-        }
-        append_pcm(
-            1,
-            2,
-            &PcmBlock {
-                start_frame: 0,
-                channels: 1,
-                payload: PcmPayload::Samples(vec![0.25; 4_800].into()),
-            },
-            &mut active,
-        );
-        handle_record(
-            &record(DvFrameKind::Terminator, 1),
-            &bindings,
-            &mut active,
-            &calls,
-            &weak,
-            &taps,
-        );
-
-        assert!(active.is_empty());
-        let listed = calls.list();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].node, "trunk");
-        assert_eq!(listed[0].destination, Some(91));
-        assert_eq!(
-            listed[0].audio.as_ref().map(|audio| audio.url.as_str()),
-            Some("/api/calls/1/audio")
-        );
-        let audio = calls.audio(listed[0].id).expect("audio");
-        assert!(audio.len() > 44 && audio.len() <= 44 + 800 * 2);
-        assert!(matches!(
-            decoded.try_recv().map(|record| record.event),
-            Ok(DecoderEvent::Call(_))
-        ));
-    }
-
-    fn record(kind: DvFrameKind, slot: u8) -> DecodedRecord {
-        DecodedRecord {
-            origin: None,
-            sinks: Vec::new(),
-            device_set: 1,
-            channel: 2,
-            at: "2026-08-14T10:00:00Z".to_owned(),
-            freq_hz: 451_125_000.0,
-            event: DecoderEvent::Dv(DvFrame {
-                kind,
-                slot: Some(slot),
-                color_code: Some(3),
-                source: Some(1001),
-                destination: Some(91),
-                group_call: Some(true),
-                encrypted: Some(false),
-                ..DvFrame::default()
-            }),
-        }
-    }
-}
+mod tests;

@@ -63,12 +63,8 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 - GSM downlink analysis, OsmocomBB-style monitoring
 
 ### Broadcast & wideband
-- DRM: FAC, SDC, MSC, service selection and audio. Today it only locks and reports SNR and
-  frequency error
-- DVB-S2X Annex E superframe formats 2 to 7, non-default superframe scrambling and WH codes
-- DAB modes II to IV on air
-- Real-world validation of DVB-T and DVB-S/S2: real transmitters, fading, adjacent-channel
-  interference. Today only synthetic IQ
+- Real-world validation of DRM, DVB-T, DVB-S/S2, S2X Annex E and DAB modes II to IV: real
+  transmitters, fading, adjacent-channel interference. Today only synthetic IQ
 
 ### ISM & IoT
 - ISM remotes and sensors (OOK/FSK)

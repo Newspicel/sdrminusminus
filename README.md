@@ -22,9 +22,9 @@ Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
 ## Install
 
 Download a desktop installer or portable server from
-[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
+[GitHub Releases](https://github.com/Newspicel/sdrmm/releases).
 The [installation guide](https://sdrmm.com/docs/getting-started/install)
-covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, Nix, and Docker.
+covers macOS, Windows, Linux, Homebrew, APT, DNF, Nix, and Docker.
 
 On macOS:
 
@@ -32,10 +32,10 @@ On macOS:
 brew install newspicel/tap/sdrmm-app
 ```
 
-For a headless server on macOS or Linux, install `sdrmm` from the same tap:
+For a headless server on macOS or Linux, install `sdrmm` from Homebrew core:
 
 ```sh
-brew install newspicel/tap/sdrmm
+brew install sdrmm
 brew services start sdrmm
 ```
 
@@ -70,31 +70,24 @@ each mode is tested.
 These captures use debug-build signal sources and repository IQ fixtures. Regenerate them with
 `cargo xtask screenshots`.
 
-| Spectrum and waterfall | Rack view |
-|---|---|
-| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/spectrum-light.png"><img src="assets/screenshots/spectrum-dark.png" alt="Spectrum with the tuned channel marked"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rack-light.png"><img src="assets/screenshots/rack-dark.png" alt="Three receivers in the rack"></picture> |
-
-| FT8 decoding | Signal identification |
-|---|---|
-| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ft8-light.png"><img src="assets/screenshots/ft8-dark.png" alt="Decoded messages from a recorded 20 m FT8 slot"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ident-light.png"><img src="assets/screenshots/ident-dark.png" alt="Signal measurements and candidate protocols"></picture> |
-
-| Aircraft positions | Ship positions |
-|---|---|
-| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/adsb-light.png"><img src="assets/screenshots/adsb-dark.png" alt="ADS-B aircraft and decoder log"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ais-light.png"><img src="assets/screenshots/ais-dark.png" alt="AIS position in Hamburg harbour"></picture> |
-
-| Slow-scan television | Amateur television |
-|---|---|
-| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/sstv-light.png"><img src="assets/screenshots/sstv-dark.png" alt="Robot 36 SSTV picture"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/atv-light.png"><img src="assets/screenshots/atv-dark.png" alt="625-line ATV test image"></picture> |
-
-| Pager messages | Broadcast FM |
-|---|---|
-| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/pocsag-light.png"><img src="assets/screenshots/pocsag-dark.png" alt="POCSAG messages with webhook output"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rds-light.png"><img src="assets/screenshots/rds-dark.png" alt="RDS station name, text, and alternate frequencies"></picture> |
+<table>
+<tr><th width="50%">Spectrum and waterfall</th><th width="50%">Rack view</th></tr>
+<tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/spectrum-light.png"><img width="100%" src="assets/screenshots/spectrum-dark.png" alt="Spectrum with the tuned channel marked"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rack-light.png"><img width="100%" src="assets/screenshots/rack-dark.png" alt="Three receivers in the rack"></picture></td></tr>
+<tr><th width="50%">FT8 decoding</th><th width="50%">Signal identification</th></tr>
+<tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ft8-light.png"><img width="100%" src="assets/screenshots/ft8-dark.png" alt="Decoded messages from a recorded 20 m FT8 slot"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ident-light.png"><img width="100%" src="assets/screenshots/ident-dark.png" alt="Signal measurements and candidate protocols"></picture></td></tr>
+<tr><th width="50%">Aircraft positions</th><th width="50%">Ship positions</th></tr>
+<tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/adsb-light.png"><img width="100%" src="assets/screenshots/adsb-dark.png" alt="ADS-B aircraft and decoder log"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ais-light.png"><img width="100%" src="assets/screenshots/ais-dark.png" alt="AIS position in Hamburg harbour"></picture></td></tr>
+<tr><th width="50%">Slow-scan television</th><th width="50%">Amateur television</th></tr>
+<tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/sstv-light.png"><img width="100%" src="assets/screenshots/sstv-dark.png" alt="Robot 36 SSTV picture"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/atv-light.png"><img width="100%" src="assets/screenshots/atv-dark.png" alt="625-line ATV test image"></picture></td></tr>
+<tr><th width="50%">Pager messages</th><th width="50%">Broadcast FM</th></tr>
+<tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/pocsag-light.png"><img width="100%" src="assets/screenshots/pocsag-dark.png" alt="POCSAG messages with webhook output"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rds-light.png"><img width="100%" src="assets/screenshots/rds-dark.png" alt="RDS station name, text, and alternate frequencies"></picture></td></tr>
+</table>
 
 ## Build
 
 ```sh
-git clone https://github.com/Newspicel/sdrminusminus.git
-cd sdrminusminus
+git clone https://github.com/Newspicel/sdrmm.git
+cd sdrmm
 python3 scripts/build-media.py
 export FFMPEG_DIR="$(python3 scripts/build-media.py --print-prefix)"
 pnpm --dir web install --frozen-lockfile

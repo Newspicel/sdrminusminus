@@ -6,6 +6,7 @@
 | Baseband recorder | One channel's filtered IQ | Channel `baseband` | SigMF |
 | Audio recorder | One channel's audio | Channel `audio` | 48 kHz 16-bit WAV |
 | Time machine | IQ from before you pressed the button | Device `iq` | SigMF |
+| Event output, Recordings | One WAV per call | Channel `events` | 8 kHz 16-bit WAV |
 
 A SigMF recording is two files: samples in `.sigmf-data`, frequency, rate, and time in
 `.sigmf-meta`. Keep them together.
@@ -43,6 +44,28 @@ silence so timing stays intact. Mode and rate changes do not stop it. The file s
 if the server stops mid-recording.
 
 Both recorders take several channels and write one file per wired input.
+
+## Record each call
+
+Wire a channel's `events` to an **Event output** set to **Recordings**. Every call becomes its own
+WAV in the audio library, named by start time (UTC), mode, and frequency:
+
+```text
+20261001T223105Z_NFM_144.200MHz.wav
+20260815T100000Z_DMR_451.125MHz_TG91.wav
+```
+
+What makes a call:
+
+| Channel | A call is |
+|---|---|
+| Digital voice, DMR trunk | One call, from header to end |
+| AM, NFM, SSB and other audio | One squelch opening. Gaps under 1.5 s stay in the call |
+
+An analog channel with squelch off has no calls. Use the Audio recorder for continuous audio.
+Calls longer than 10 minutes continue in a new file. Encrypted calls have no audio to save.
+Several channels can share one Event output. Add an **Event filter** between them to skip short
+calls or keep certain talkgroups.
 
 ## Time machine
 

@@ -59,6 +59,30 @@ pub(crate) fn rate_capabilities(ranges: &[crate::soapy::Range]) -> (Vec<f64>, Ve
     (discrete, continuous)
 }
 
+const PREFERRED_SAMPLE_RATE: f64 = 2_048_000.0;
+
+pub(crate) fn rate_is_set(rate: f64) -> bool {
+    rate.is_finite() && rate > 0.0
+}
+
+pub(crate) fn default_sample_rate(channel: &ChannelCapabilities) -> Option<f64> {
+    let held = channel
+        .sample_rate_ranges
+        .iter()
+        .map(|range| PREFERRED_SAMPLE_RATE.clamp(range.min, range.max));
+    channel
+        .sample_rates
+        .iter()
+        .copied()
+        .chain(held)
+        .filter(|rate| rate_is_set(*rate))
+        .min_by(|a, b| {
+            (a - PREFERRED_SAMPLE_RATE)
+                .abs()
+                .total_cmp(&(b - PREFERRED_SAMPLE_RATE).abs())
+        })
+}
+
 pub(crate) fn argument_info(info: &crate::soapy::ArgInfo) -> ArgumentInfo {
     ArgumentInfo {
         key: info.key.clone(),
@@ -909,6 +933,41 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["buffers", "transfers"]
         );
+    }
+
+    #[test]
+    fn a_range_only_radio_gets_a_rate_it_can_take() {
+        let lime = ChannelCapabilities {
+            sample_rate_ranges: vec![Range {
+                min: 100e3,
+                max: 61.44e6,
+                step: None,
+            }],
+            ..ChannelCapabilities::default()
+        };
+        assert_eq!(default_sample_rate(&lime), Some(2_048_000.0));
+        let fast = ChannelCapabilities {
+            sample_rate_ranges: vec![Range {
+                min: 10e6,
+                max: 20e6,
+                step: None,
+            }],
+            ..ChannelCapabilities::default()
+        };
+        assert_eq!(default_sample_rate(&fast), Some(10e6));
+        let listed = ChannelCapabilities {
+            sample_rates: vec![1e6, 2.4e6, 8e6],
+            ..ChannelCapabilities::default()
+        };
+        assert_eq!(default_sample_rate(&listed), Some(2.4e6));
+        assert_eq!(default_sample_rate(&ChannelCapabilities::default()), None);
+    }
+
+    #[test]
+    fn only_a_positive_rate_counts_as_set() {
+        assert!(rate_is_set(2.048e6));
+        assert!(!rate_is_set(0.0));
+        assert!(!rate_is_set(f64::NAN));
     }
 
     #[test]

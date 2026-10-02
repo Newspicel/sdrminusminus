@@ -1,14 +1,19 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "sdrminusminus",
+  "productName": "sdrmm-app",
   "bundle": {
     "linux": {
       "deb": {
         "section": "hamradio",
-        "desktopTemplate": "../../packaging/linux/sdrminusminus.desktop"
+        "desktopTemplate": "../../packaging/linux/sdrmm-app.desktop",
+        "provides": ["sdrminusminus"],
+        "conflicts": ["sdrminusminus"],
+        "replaces": ["sdrminusminus"]
       },
       "rpm": {
-        "desktopTemplate": "../../packaging/linux/sdrminusminus.desktop"
+        "desktopTemplate": "../../packaging/linux/sdrmm-app.desktop",
+        "conflicts": ["sdrminusminus"],
+        "obsoletes": ["sdrminusminus"]
       }
     }
   }

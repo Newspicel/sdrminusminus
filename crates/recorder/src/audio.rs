@@ -12,6 +12,7 @@ const BITS_PER_SAMPLE: u16 = 16;
 const HEADER_REFRESH_FRAMES: u64 = 48_000;
 const MAX_DATA_BYTES: u64 = u32::MAX as u64 - (HEADER_LEN - 8);
 const SILENCE_BUFFER_BYTES: usize = 8192;
+const MAX_NAME_ATTEMPTS: u32 = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioInfo {
@@ -165,6 +166,64 @@ impl AudioWriter {
         self.refreshed_at = self.frames;
         Ok(())
     }
+}
+
+#[must_use]
+pub fn audio_stem(started_at: jiff::Timestamp, mode: &str, freq_hz: f64) -> String {
+    let mode: String = mode
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    format!(
+        "{}_{mode}_{}MHz",
+        started_at.strftime("%Y%m%dT%H%M%SZ"),
+        megahertz(freq_hz)
+    )
+}
+
+fn megahertz(freq_hz: f64) -> String {
+    let steps = (freq_hz.max(0.0) / 100.0).round() as u64;
+    let (whole, fraction) = (steps / 10_000, steps % 10_000);
+    if fraction % 10 == 0 {
+        format!("{whole}.{:03}", fraction / 10)
+    } else {
+        format!("{whole}.{fraction:04}")
+    }
+}
+
+pub fn create_unique<T>(
+    dir: &Path,
+    stem: &str,
+    mut create: impl FnMut(&Path) -> io::Result<T>,
+) -> io::Result<T> {
+    for attempt in 1..=MAX_NAME_ATTEMPTS {
+        let name = if attempt == 1 {
+            format!("{stem}{AUDIO_SUFFIX}")
+        } else {
+            format!("{stem}-{attempt}{AUDIO_SUFFIX}")
+        };
+        match create(&dir.join(name)) {
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            done => return done,
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!("{MAX_NAME_ATTEMPTS} files already named {stem}"),
+    ))
+}
+
+pub fn save_unique(dir: &Path, stem: &str, wav: &[u8]) -> io::Result<PathBuf> {
+    create_unique(dir, stem, |path| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        file.write_all(wav)?;
+        file.sync_all()?;
+        Ok(path.to_path_buf())
+    })
 }
 
 pub fn scan_audio(dir: &Path) -> io::Result<Vec<PathBuf>> {
@@ -418,6 +477,35 @@ mod tests {
             .expect("write");
         writer.finalize().expect("finalize");
         assert_eq!(samples(&path), [i16::MAX, -i16::MAX, 0, 0]);
+    }
+
+    #[test]
+    fn a_stem_names_time_mode_and_frequency() {
+        let at: jiff::Timestamp = "2026-10-01T22:31:05Z".parse().expect("time");
+        assert_eq!(
+            audio_stem(at, "nfm", 144_200_000.0),
+            "20261001T223105Z_NFM_144.200MHz"
+        );
+        assert_eq!(
+            audio_stem(at, "D-STAR/x", 438_012_500.0),
+            "20261001T223105Z_D-STARX_438.0125MHz"
+        );
+    }
+
+    #[test]
+    fn a_saved_name_advances_past_files_already_there() {
+        let dir = TempDir::new().expect("tempdir");
+        let names: Vec<String> = (0..3)
+            .map(|_| {
+                save_unique(dir.path(), "call", b"RIFF")
+                    .expect("save")
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("name")
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(names, ["call.wav", "call-2.wav", "call-3.wav"]);
     }
 
     #[test]

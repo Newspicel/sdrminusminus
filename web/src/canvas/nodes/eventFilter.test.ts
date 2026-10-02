@@ -65,44 +65,37 @@ describe("kindsOffered", () => {
     { type_id: "adsb", decoder_kind: "adsb" },
     { type_id: "dmr", decoder_kind: "dv" },
     { type_id: "pocsag", decoder_kind: "pocsag" },
-    { type_id: "am", decoder_kind: null },
+    { type_id: "am", decoder_kind: null, has_audio: true },
+    { type_id: "scope", decoder_kind: null, has_audio: false },
   ] as ChannelDescriptor[];
 
   it("offers only what the wired decoders emit", () => {
-    expect(
-      kindsOffered([{ channelType: "adsb", recordsCalls: false, trunk: false }], descriptors),
-    ).toEqual(["adsb"]);
+    expect(kindsOffered([{ channelType: "adsb", trunk: false }], descriptors)).toEqual(["adsb"]);
   });
 
-  it("adds calls only when the channel records them", () => {
-    expect(
-      kindsOffered([{ channelType: "dmr", recordsCalls: false, trunk: false }], descriptors),
-    ).toEqual(["dv"]);
-    expect(
-      kindsOffered([{ channelType: "dmr", recordsCalls: true, trunk: false }], descriptors),
-    ).toEqual(["call", "dv"]);
-  });
-
-  it("treats a trunk system as digital voice", () => {
-    expect(kindsOffered([{ recordsCalls: true, trunk: true }], descriptors)).toEqual([
+  it("adds calls for every channel that carries voice", () => {
+    expect(kindsOffered([{ channelType: "dmr", trunk: false }], descriptors)).toEqual([
       "call",
       "dv",
     ]);
+    expect(kindsOffered([{ channelType: "am", trunk: false }], descriptors)).toEqual(["call"]);
   });
 
-  it("offers nothing for a channel that decodes nothing", () => {
-    expect(
-      kindsOffered([{ channelType: "am", recordsCalls: false, trunk: false }], descriptors),
-    ).toEqual([]);
+  it("treats a trunk system as digital voice", () => {
+    expect(kindsOffered([{ trunk: true }], descriptors)).toEqual(["call", "dv"]);
+  });
+
+  it("offers nothing for a channel that decodes and hears nothing", () => {
+    expect(kindsOffered([{ channelType: "scope", trunk: false }], descriptors)).toEqual([]);
   });
 
   it("lists each kind once across several wires", () => {
     expect(
       kindsOffered(
         [
-          { channelType: "adsb", recordsCalls: false, trunk: false },
-          { channelType: "adsb", recordsCalls: false, trunk: false },
-          { channelType: "pocsag", recordsCalls: false, trunk: false },
+          { channelType: "adsb", trunk: false },
+          { channelType: "adsb", trunk: false },
+          { channelType: "pocsag", trunk: false },
         ],
         descriptors,
       ),
@@ -241,6 +234,6 @@ describe("sectionsFor", () => {
 });
 
 it("offers automatically decoded kinds from a spectrum monitor", () => {
-  const offered = kindsOffered([{ monitor: true, recordsCalls: false, trunk: false }], []);
+  const offered = kindsOffered([{ monitor: true, trunk: false }], []);
   expect(offered).toContain("transmission");
 });

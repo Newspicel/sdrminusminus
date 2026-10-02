@@ -37,6 +37,7 @@ pub mod subband;
 pub mod sweep;
 pub mod sync;
 pub mod tone;
+pub mod vector;
 pub mod window;
 pub mod xcorr;
 

@@ -237,3 +237,127 @@ fn data_input_errors_are_reported_as_data_errors() {
     );
     assert_eq!(media.audio_errors, 0);
 }
+
+fn drm_config(sbr: bool, rate_hz: u32) -> DrmAudio {
+    DrmAudio {
+        coding: DrmCoding::Aac,
+        sbr,
+        mode: crate::drm::aac::AudioMode::Mono,
+        rate_hz,
+        rate_code: 0,
+        text: false,
+        surround: 0,
+        config: [0; crate::drm::aac::MAX_CONFIG],
+        config_length: 0,
+    }
+}
+
+fn drm_pcm(frames: &[u8], config: &DrmAudio) -> Vec<f32> {
+    let packets: Vec<u8> = access_units(frames)
+        .into_iter()
+        .flat_map(|frame| crate::drm::aac::latm(frame, config).expect("LATM"))
+        .collect();
+    decode(Kind::Latm, &packets, 61)
+        .into_iter()
+        .flat_map(|(_, payload)| match payload {
+            Payload::Audio(pcm) => pcm,
+            _ => panic!("audio"),
+        })
+        .collect()
+}
+
+#[test]
+fn drm_aac_frames_match_the_reference_decoder() {
+    let pcm = drm_pcm(
+        include_bytes!("../../../../fixtures/drm/drm_lc_mono_48k.drm"),
+        &drm_config(false, 48_000),
+    );
+    let reference: Vec<f32> = include_bytes!("../../../../fixtures/drm/drm_lc_mono_48k.pcm")
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
+        .collect();
+    assert!(pcm.len().abs_diff(reference.len()) < 100);
+    let best = (-128_i32..=128)
+        .map(|lag| {
+            let mut error = 0.0;
+            let mut power = 0.0;
+            for i in 12_000..pcm.len().min(reference.len()) - 4096 {
+                let actual = pcm[(i as i32 + 2 * lag) as usize];
+                let target = reference[i] * std::f32::consts::FRAC_1_SQRT_2;
+                error += f64::from(actual - target).powi(2);
+                power += f64::from(target).powi(2);
+            }
+            error / power
+        })
+        .fold(f64::MAX, f64::min);
+    assert!(best < 0.001, "relative error {best}");
+}
+
+#[test]
+fn drm_he_aac_frames_carry_their_tone() {
+    let pcm = drm_pcm(
+        include_bytes!("../../../../fixtures/drm/drm_he_mono_24k.drm"),
+        &drm_config(true, 12_000),
+    );
+    assert!(
+        pcm.len().abs_diff(30 * 1920 * 2 * 2) < 4096,
+        "{}",
+        pcm.len()
+    );
+    let left: Vec<f32> = pcm.iter().step_by(2).copied().collect();
+    let (frequency, ratio) = crate::testutil::dominant_tone(&left[24_000..], f64::from(AUDIO_RATE));
+    assert!((frequency - 700.0).abs() < 5.0, "{frequency} Hz");
+    assert!(ratio > 10.0, "{ratio}");
+}
+
+#[test]
+fn drm_frames_with_errors_surface_in_the_worker() {
+    let mut media = BroadcastMedia::new().expect("worker");
+    let frames = access_units(include_bytes!(
+        "../../../../fixtures/drm/drm_lc_mono_48k.drm"
+    ));
+    let config = drm_config(false, 48_000);
+    let mut damaged = frames[5].to_vec();
+    damaged[2] ^= 0x01;
+    for frame in &frames[..5] {
+        media.push_drm(frame, config);
+    }
+    media.push_drm(&damaged, config);
+    let mut out = ChannelOutputs::default();
+    for _ in 0..2000 {
+        media.drain(&mut out);
+        if media.audio_errors > 0 && media.audio_frames >= 4 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    assert!(media.audio_frames >= 4);
+    assert_eq!(media.audio_errors, 1);
+    assert_eq!(
+        media.audio_error.as_deref(),
+        Some("DRM AAC frame CRC failure")
+    );
+}
+
+#[test]
+fn xhe_aac_reports_its_codec_on_failure() {
+    let mut media = BroadcastMedia::new().expect("worker");
+    let mut config = drm_config(false, 24_000);
+    config.coding = DrmCoding::Xhe;
+    config.rate_code = 4;
+    config.config[0] = 0b0010_0000;
+    config.config_length = 1;
+    media.push_drm(&[0x80, 0x11, 0x22, 0x33], config);
+    let mut out = ChannelOutputs::default();
+    for _ in 0..2000 {
+        media.drain(&mut out);
+        if media.audio_errors > 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    let error = media.audio_error.expect("an error");
+    assert!(error.starts_with("xHE-AAC: "), "{error}");
+}

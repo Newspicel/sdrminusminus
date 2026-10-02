@@ -1,4 +1,3 @@
-import { type ReactNode } from "react";
 import type { ChannelDescriptor, ChannelSettings } from "../lib/types";
 import type { ChannelEdit } from "../lib/useChannelPatch";
 import { BlankerChip } from "./BlankerControl";
@@ -77,13 +76,11 @@ export function ChannelControls({
   settings,
   descriptor,
   onEdit,
-  extra,
   broadcast,
 }: {
   settings: ChannelSettings;
   descriptor: ChannelDescriptor | undefined;
   onEdit: (edit: ChannelEdit) => void;
-  extra?: ReactNode;
   broadcast?: BroadcastStatus;
 }) {
   const audio = channelHasAudio(descriptor);
@@ -96,7 +93,6 @@ export function ChannelControls({
         limits={descriptor?.limits ?? []}
         onParams={(params) => onEdit({ params })}
       />
-      {extra}
       {audio && (
         <BlankerChip
           blanker={settings.blanker ?? {}}

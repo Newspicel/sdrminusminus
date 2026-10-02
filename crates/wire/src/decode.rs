@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{PskBaud, RadioClockStandard, channel::SstvMode, weather::AprsWeather};
+use crate::{
+    PskBaud, RadioClockStandard,
+    channel::{DabTransmissionMode, SstvMode},
+    weather::AprsWeather,
+};
 
 pub const NO_CHANNEL: u32 = u32::MAX;
 
@@ -455,6 +459,36 @@ impl DvMode {
             Self::FreeDv => "FreeDV",
         }
     }
+
+    #[must_use]
+    pub fn type_id(self) -> &'static str {
+        match self {
+            Self::Dmr => "dmr",
+            Self::Dstar => "dstar",
+            Self::Ysf => "ysf",
+            Self::Nxdn => "nxdn",
+            Self::P25 => "p25",
+            Self::Dpmr => "dpmr",
+            Self::M17 => "m17",
+            Self::FreeDv => "freedv",
+        }
+    }
+
+    #[must_use]
+    pub fn from_type_id(type_id: &str) -> Option<Self> {
+        [
+            Self::Dmr,
+            Self::Dstar,
+            Self::Ysf,
+            Self::Nxdn,
+            Self::P25,
+            Self::Dpmr,
+            Self::M17,
+            Self::FreeDv,
+        ]
+        .into_iter()
+        .find(|mode| mode.type_id() == type_id)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -705,6 +739,18 @@ pub struct BroadcastData {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SuperframeStatus {
+    pub format: u8,
+    pub sosf: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pilot: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trailer: Option<u8>,
+    pub reference: u32,
+    pub payload: u32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BroadcastStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -734,6 +780,8 @@ pub struct BroadcastStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol_rate: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transmission_mode: Option<DabTransmissionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ensemble_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_id: Option<u32>,
@@ -755,6 +803,8 @@ pub struct BroadcastStatus {
     pub frames_bad: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub services: Vec<BroadcastService>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superframe: Option<SuperframeStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -1212,19 +1262,17 @@ fn tone_summary(t: &ToneSquelchStatus) -> String {
 }
 
 fn call_summary(c: &crate::rest::VoiceCall) -> String {
-    let mut parts = vec![c.mode.label().to_owned()];
-    parts.push(c.destination.map_or_else(
-        || "to unknown".to_owned(),
-        |id| match c.group_call {
+    let mut parts = vec![c.mode_label()];
+    if let Some(id) = c.destination {
+        parts.push(match c.group_call {
             Some(true) => format!("talkgroup {id}"),
             Some(false) => format!("radio {id}"),
             None => format!("to {id}"),
-        },
-    ));
-    parts.push(
-        c.source
-            .map_or_else(|| "from unknown".to_owned(), |id| format!("from {id}")),
-    );
+        });
+    }
+    if let Some(id) = c.source {
+        parts.push(format!("from {id}"));
+    }
     if let Some(slot) = c.slot {
         parts.push(format!("TS{slot}"));
     }

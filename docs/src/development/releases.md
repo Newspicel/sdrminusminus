@@ -73,9 +73,9 @@ the installed plugins WebKit uses for audio.
 
 ## Desktop updates
 
-The app checks the latest stable GitHub release at startup. Update archives use a Tauri updater
-signature separate from platform code signing. Preserve the private updater key; installed clients
-trust its compiled public key.
+The app checks `downloads.sdrmm.com` for the latest stable release at startup, then GitHub. Update
+archives use a Tauri updater signature separate from platform code signing. Preserve the private
+updater key; installed clients trust its compiled public key.
 
 Without a local signing key, the bundle task uses `--no-sign`. Those installers cannot serve as
 application updates. Release CI requires signatures and builds the update manifest:
@@ -84,7 +84,7 @@ application updates. Release CI requires signatures and builds the update manife
 cargo xtask updater-manifest \
   --version 1.2.3 \
   --dir dist/release \
-  --base-url https://github.com/Newspicel/sdrminusminus/releases/download/v1.2.3
+  --base-url https://github.com/Newspicel/sdrmm/releases/download/v1.2.3
 ```
 
 ## Containers
@@ -92,8 +92,8 @@ cargo xtask updater-manifest \
 Releases publish Linux `amd64` and `arm64` images:
 
 ```text
-ghcr.io/newspicel/sdrminusminus:<version>
-ghcr.io/newspicel/sdrminusminus:latest
+ghcr.io/newspicel/sdrmm:<version>
+ghcr.io/newspicel/sdrmm:latest
 ```
 
 Nightlies update only `:nightly`. Smoke tests check the binary, SoapySDR modules, server startup,
@@ -101,14 +101,15 @@ and embedded frontend. CI builds and smoke-tests both architectures.
 
 ## Homebrew tap
 
-The release workflow updates the `sdrmm` formula and `sdrminusminus` cask in
-`Newspicel/homebrew-tap` after publishing stable downloads:
+The `sdrmm` formula lives in homebrew-core and builds from the GitHub source tarball. The release
+workflow updates the `sdrmm-app` cask in `Newspicel/homebrew-tap`, which downloads from GitHub
+Releases:
 
 ```sh
 cargo xtask homebrew-tap \
   --version 1.2.3 \
   --sums SHA256SUMS \
-  --repo Newspicel/sdrminusminus \
+  --repo Newspicel/sdrmm \
   --out ../homebrew-tap
 ```
 
@@ -119,9 +120,30 @@ Validate generator changes:
 
 ```sh
 brew style newspicel/tap
-brew audit --strict --online newspicel/tap/sdrmm
 brew audit --strict --online --cask newspicel/tap/sdrmm-app
 ```
+
+## downloads.sdrmm.com
+
+The R2 bucket `sdrmm` serves `downloads.sdrmm.com`, the primary download location. A stable release
+uploads to `releases/<tag>/` first, then to GitHub Releases as the fallback. Once both hold it,
+`releases/latest`, `releases/latest.json` (updater manifest) and `releases/release.json` (download
+page) move to the new tag. AUR packages and the WinGet manifest point at the mirror; the Homebrew
+cask stays on GitHub.
+Nightlies stay on GitHub only.
+
+The signed APT and RPM repository lives under `packages/`. The `linux-repo` workflow rebuilds it
+from a release tag and needs `PACKAGES_GPG_KEY`.
+
+A tagged release fails without `CLOUDFLARE_API_TOKEN` (R2 write) and `CLOUDFLARE_ACCOUNT_ID`.
+
+Denoise models live under `denoise/v1/`. After `cargo xtask denoise-model`, upload them with:
+
+```sh
+scripts/r2-upload.sh denoise/v1 target/denoise-model/*.sdrmmnn
+```
+
+Uploads are cached as immutable. Never replace a file; publish a new prefix instead.
 
 ## Release checklist
 

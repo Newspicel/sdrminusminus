@@ -8,6 +8,7 @@ import type {
 } from "../lib/types";
 import { hex5 } from "./decoderLog";
 import {
+  callMode,
   candidateScore,
   dvChecksum,
   dvMode,
@@ -306,7 +307,7 @@ const DETAIL: {
 
   call: (c) => ({
     fields: fields([
-      ["Mode", c.mode.toUpperCase()],
+      ["Mode", callMode(c.mode)],
       [
         "Destination",
         c.destination == null
@@ -378,6 +379,7 @@ const DETAIL: {
   broadcast: (status) => ({
     fields: fields([
       ["System", broadcastSystem(status.system)],
+      ["Mode", status.transmission_mode?.toUpperCase()],
       ["Lock", status.locked ? "locked" : "searching"],
       ["SNR", status.locked ? `${status.snr_db.toFixed(1)} dB` : undefined],
       [
@@ -387,6 +389,18 @@ const DETAIL: {
           : undefined,
       ],
       ["Symbol rate", status.symbol_rate == null ? undefined : `${status.symbol_rate} Bd`],
+      [
+        "Superframe",
+        status.superframe == null
+          ? undefined
+          : `format ${status.superframe.format}, WH ${[
+              status.superframe.sosf,
+              status.superframe.pilot,
+              status.superframe.trailer,
+            ]
+              .filter((row) => row != null)
+              .join("/")}, codes ${status.superframe.reference}/${status.superframe.payload}`,
+      ],
       ["Ensemble ID", status.ensemble_id == null ? undefined : hex(status.ensemble_id, 4)],
       ["Service ID", status.service_id == null ? undefined : hex(status.service_id, 4)],
       ["Label", status.label],

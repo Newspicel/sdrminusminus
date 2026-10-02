@@ -1026,8 +1026,8 @@ test.describe("the workspace", () => {
 
     const decoders = page.getByRole("dialog", { name: "Replace the decoder" });
     await expect(decoders).toBeVisible();
-    await decoders.getByRole("searchbox", { name: "Search channel modes" }).fill("am");
-    await decoders.getByRole("button", { name: "AM", exact: true }).first().click();
+    await decoders.getByRole("searchbox", { name: "Search channel modes" }).fill("pocsag");
+    await decoders.getByRole("button", { name: "POCSAG", exact: true }).first().click();
     await expect(decoders).toHaveCount(0);
 
     await expect
@@ -1039,7 +1039,7 @@ test.describe("the workspace", () => {
         const ports = (detail.snapshot.graph.edges ?? []).map((edge) => edge.from.port);
         return `${node?.kind === "channel" ? node.data.channel_type : "?"} ${ports.join(",")}`;
       })
-      .toBe("am iq,audio");
+      .toBe("pocsag iq,events");
 
     await page.request.post(`/api/workspaces/${list.active}/activate`);
     await page.request.delete(`/api/workspaces/${created.id}`);

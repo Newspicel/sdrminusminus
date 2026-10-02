@@ -66,6 +66,9 @@ function emptyHint(inputs: number, configured: boolean, target: EventOutputTarge
   if (inputs === 0) {
     return "Wire events in";
   }
+  if (target.service === "recordings") {
+    return "One WAV per call in Recordings";
+  }
   if (target.service === "tunnel") {
     return configured ? "Received IPv4 and IPv6 datagrams" : "Enter the interface name";
   }
@@ -99,6 +102,8 @@ function TargetChips({
   onEdit: (next: EventOutputTarget) => void;
 }) {
   switch (target.service) {
+    case "recordings":
+      return null;
     case "beast":
       return (
         <TextChip

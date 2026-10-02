@@ -291,11 +291,11 @@ impl FlexChannel {
         let searching = matches!(self.state, State::Search);
         let centred = self.afc.centre(sample, searching);
         let slow = self.slow.push(centred);
-        let fast = self.fast.push(centred);
         if searching {
             self.search(slow);
             return;
         }
+        let fast = self.fast.push(centred);
         self.history.rotate_left(1);
         self.history[HISTORY - 1] = if self.symbol_target == FAST_SPS {
             fast

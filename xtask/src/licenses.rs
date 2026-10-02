@@ -164,7 +164,7 @@ fn own_license(root: &Path) -> Result<NoticesDocument> {
     Ok(NoticesDocument {
         license: "AGPL-3.0-or-later".to_string(),
         license_text: normalize(&license_text),
-        repository: "https://github.com/newspicel/sdrminusminus".to_string(),
+        repository: "https://github.com/newspicel/sdrmm".to_string(),
         components: Vec::new(),
         texts: BTreeMap::new(),
     })

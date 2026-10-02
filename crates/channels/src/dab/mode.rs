@@ -1,5 +1,12 @@
 use sdrmm_wire::DabTransmissionMode;
 
+pub const TRANSMISSION_MODES: [DabTransmissionMode; 4] = [
+    DabTransmissionMode::I,
+    DabTransmissionMode::Ii,
+    DabTransmissionMode::Iii,
+    DabTransmissionMode::Iv,
+];
+
 #[derive(Clone, Copy, Debug)]
 pub struct Mode {
     pub useful: usize,
@@ -15,7 +22,7 @@ impl Mode {
     #[must_use]
     pub const fn new(mode: DabTransmissionMode) -> Self {
         let (useful, guard, null, symbols, fic_symbols, cifs, fibs_per_block) = match mode {
-            DabTransmissionMode::I => (2048, 504, 2656, 76, 3, 4, 3),
+            DabTransmissionMode::I | DabTransmissionMode::Auto => (2048, 504, 2656, 76, 3, 4, 3),
             DabTransmissionMode::Ii => (512, 126, 664, 76, 3, 1, 3),
             DabTransmissionMode::Iii => (256, 63, 345, 153, 8, 1, 4),
             DabTransmissionMode::Iv => (1024, 252, 1328, 76, 3, 2, 3),
@@ -39,6 +46,11 @@ impl Mode {
     #[must_use]
     pub const fn symbol(self) -> usize {
         self.useful + self.guard
+    }
+
+    #[must_use]
+    pub const fn backoff(self) -> usize {
+        self.guard / 8
     }
 
     #[must_use]

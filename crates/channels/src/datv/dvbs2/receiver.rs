@@ -13,8 +13,9 @@ use super::{
     gse::{Gse, GseMetrics, GsePdu},
     ldpc::{Frame, Ldpc, Rate},
     pl::{self, Scrambler, Signalling},
-    superframe::{Container, Content},
-    vlsnr::{self, Piece, VlMode, VlSnrCodec},
+    superframe::{Burst, Container, Content, Identity, Settings, Unit},
+    vlsnr::{self, Carrier, Piece, VlMode, VlSnrCodec},
+    xfec::Xfec,
 };
 use crate::datv::dvbs::PACKET;
 
@@ -215,6 +216,8 @@ pub struct Dvbs2Decoder {
     wanted: Option<u8>,
     seen: Vec<u32>,
     very_low: Option<VlSnrCodec>,
+    xfec: Option<Xfec>,
+    burst_mode: Option<(Modulation, Rate)>,
     pub metrics: Dvbs2Metrics,
     pub signalling: Option<Signalling>,
     pub stream: Option<StreamKind>,
@@ -250,6 +253,8 @@ impl Dvbs2Decoder {
             wanted: None,
             seen: vec![0; 256],
             very_low: None,
+            xfec: None,
+            burst_mode: None,
             metrics: Dvbs2Metrics::default(),
             signalling: None,
             stream: None,
@@ -276,6 +281,7 @@ impl Dvbs2Decoder {
         self.contained.clear();
         self.codec = None;
         self.very_low = None;
+        self.burst_mode = None;
         self.pending.clear();
         self.searched = 0;
         self.frequency = 0.0;
@@ -306,9 +312,11 @@ impl Dvbs2Decoder {
 
     #[must_use]
     pub fn mode(&self) -> Option<(Modulation, Rate)> {
-        self.codec
-            .as_ref()
-            .map(|codec| (codec.modcod.modulation, codec.modcod.rate))
+        self.burst_mode.or_else(|| {
+            self.codec
+                .as_ref()
+                .map(|codec| (codec.modcod.modulation, codec.modcod.rate))
+        })
     }
 
     #[must_use]
@@ -328,13 +336,24 @@ impl Dvbs2Decoder {
         }
     }
 
-    pub fn superframe_format(&self) -> Option<u8> {
-        match self.content {
-            Content::Plain => None,
-            Content::Extended => Some(0),
-            Content::Legacy => Some(1),
-            Content::Unsupported(format) => Some(format),
+    pub fn configure_superframes(&mut self, settings: Settings) {
+        if let Some(container) = &mut self.container {
+            container.configure(settings);
         }
+    }
+
+    #[must_use]
+    pub fn superframe_identity(&self) -> Option<Identity> {
+        self.container
+            .as_ref()
+            .map(Container::identity)
+            .filter(|identity| identity.format.is_some())
+    }
+
+    #[must_use]
+    pub fn superframe_format(&self) -> Option<u8> {
+        self.superframe_identity()
+            .and_then(|identity| identity.format)
     }
 
     pub fn push(&mut self, symbols: &[Complex<f32>], out: &mut Dvbs2Output) {
@@ -346,20 +365,84 @@ impl Dvbs2Decoder {
             container.push(symbols);
         }
         let mut contained = std::mem::take(&mut self.contained);
-        while let Some(content) = self
+        while let Some(unit) = self
             .container
             .as_mut()
             .and_then(|container| container.next(&mut contained))
         {
-            if matches!(content, Content::Unsupported(_)) && self.content != content {
-                self.metrics.frames_skipped += 1;
-                self.pending.clear();
-                self.searched = 0;
+            match unit {
+                Unit::Symbols(content) => {
+                    if matches!(content, Content::Unsupported(_)) && self.content != content {
+                        self.metrics.frames_skipped += 1;
+                        self.pending.clear();
+                        self.searched = 0;
+                    }
+                    self.content = content;
+                    self.push_plain(&contained, out);
+                }
+                Unit::Burst(burst) => self.consume_burst(burst, &contained, out),
             }
-            self.content = content;
-            self.push_plain(&contained, out);
+            let dropped = self.container.as_mut().map_or(0, Container::take_dropped);
+            if dropped > 0 {
+                self.transport.reset();
+                self.metrics.frames_bad += dropped;
+            }
         }
         self.contained = contained;
+    }
+
+    fn consume_burst(&mut self, burst: Burst, symbols: &[Complex<f32>], out: &mut Dvbs2Output) {
+        if self
+            .xfec
+            .as_ref()
+            .is_none_or(|codec| codec.coding() != burst.coding)
+        {
+            self.xfec = Xfec::new(burst.coding);
+        }
+        let Some(mut codec) = self.xfec.take() else {
+            for _ in 0..burst.frames {
+                self.fail();
+            }
+            return;
+        };
+        self.payload.clear();
+        self.payload.extend_from_slice(symbols);
+        if !burst.tracked {
+            self.track_burst(&codec);
+        }
+        codec.soft(&self.payload);
+        for index in 0..burst.frames {
+            match codec.decode(index, burst.compact) {
+                Some(decoded) => {
+                    self.metrics.frames_ok += 1;
+                    self.metrics.iterations += decoded.iterations as u32;
+                    self.metrics.corrected_bits += decoded.corrected as u32;
+                    self.good = self.good.saturating_add(1);
+                    self.deliver(decoded.data, out);
+                }
+                None => self.fail(),
+            }
+        }
+        self.burst_mode = burst.coding.mode();
+        self.xfec = Some(codec);
+    }
+
+    fn track_burst(&mut self, codec: &Xfec) {
+        if codec.carrier() != Carrier::Qpsk {
+            return;
+        }
+        let constellation = codec.constellation();
+        match codec
+            .coding()
+            .mode()
+            .and_then(|(modulation, _)| power_order(modulation))
+        {
+            Some(order) => {
+                let reference = constellation.point(0).powi(order);
+                track_power(&mut self.payload, order, reference, &mut self.block_phases);
+            }
+            None => track_decisions(&mut self.payload, constellation),
+        }
     }
 
     fn push_plain(&mut self, symbols: &[Complex<f32>], out: &mut Dvbs2Output) {

@@ -10,7 +10,7 @@ connected client.
 | `/api/ws` | WebSocket |
 | `/mcp` | MCP over streamable HTTP |
 
-The [OpenAPI schema](https://github.com/Newspicel/sdrminusminus/blob/main/openapi.json) is also in
+The [OpenAPI schema](https://github.com/Newspicel/sdrmm/blob/main/openapi.json) is also in
 the repository, for generating clients without a running server.
 
 With a [token](configuration.md#token) set, send it on every request:

@@ -14,7 +14,7 @@ fn bundled_rpath() {
             &[
                 "$ORIGIN",
                 "$ORIGIN/../lib/sdrmm",
-                "$ORIGIN/../lib/sdrminusminus",
+                "$ORIGIN/../lib/sdrmm-app",
             ]
         }
         _ => return,

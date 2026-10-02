@@ -8,8 +8,8 @@ and display frames cross the network; raw IQ stays on the server.
 On Linux:
 
 ```sh
-git clone https://github.com/Newspicel/sdrminusminus.git
-cd sdrminusminus
+git clone https://github.com/Newspicel/sdrmm.git
+cd sdrmm
 docker compose up -d
 ```
 
@@ -44,7 +44,7 @@ shows ownership from inside the container.
 The image has bladeRF, LimeSDR, and SoapyRemote modules. Add others with a derived image:
 
 ```dockerfile
-FROM ghcr.io/newspicel/sdrminusminus:latest
+FROM ghcr.io/newspicel/sdrmm:latest
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends soapysdr-module-audio \

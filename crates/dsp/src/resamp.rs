@@ -283,8 +283,8 @@ mod tests {
             48_000.0 / 44_100.0,
             1.2,
             0.8736,
-            0.618_033_988_7,
-            1.618_033_988_7,
+            std::f64::consts::GOLDEN_RATIO - 1.0,
+            std::f64::consts::GOLDEN_RATIO,
         ] {
             let mut resampler = FracResampler::new(ratio);
             let taps = resampler.taps_per_phase;

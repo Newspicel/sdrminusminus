@@ -914,7 +914,6 @@ mod tests {
             id: "voice".to_owned(),
             body: NodeBody::Channel(sdrmm_wire::ChannelNode {
                 channel_type: "dmr".to_owned(),
-                record_calls: false,
                 tuning_locked: false,
             }),
             position: Position { x: 0.0, y: 0.0 },

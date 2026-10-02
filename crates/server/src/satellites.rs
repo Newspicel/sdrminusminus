@@ -417,7 +417,6 @@ mod tests {
         let channel = || {
             NodeBody::Channel(ChannelNode {
                 channel_type: "nfm".to_owned(),
-                record_calls: false,
                 tuning_locked: false,
             })
         };

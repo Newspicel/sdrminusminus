@@ -69,6 +69,8 @@ impl Correlated for Complex<f32> {
     }
 }
 
+const REBUILD_SAMPLES: usize = 1_024;
+
 #[derive(Clone, Debug)]
 pub struct ToneCorrelator<T = f32> {
     rot: Complex<f64>,
@@ -78,6 +80,7 @@ pub struct ToneCorrelator<T = f32> {
     pos: usize,
     acc: Complex<f64>,
     since_rebuild: usize,
+    rebuild_every: usize,
 }
 
 impl ToneCorrelator<f32> {
@@ -116,6 +119,7 @@ impl<T: Correlated> ToneCorrelator<T> {
             pos: 0,
             acc: Complex::new(0.0, 0.0),
             since_rebuild: 0,
+            rebuild_every: window.max(REBUILD_SAMPLES),
         }
     }
 
@@ -128,7 +132,7 @@ impl<T: Correlated> ToneCorrelator<T> {
         }
         self.acc = self.acc * self.rot + sample.widen() - self.exit * leaving.widen();
         self.since_rebuild += 1;
-        if self.since_rebuild >= self.buf.len() {
+        if self.since_rebuild >= self.rebuild_every {
             self.rebuild();
         }
         self.acc.norm_sqr().sqrt() as f32 * self.norm

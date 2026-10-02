@@ -8,7 +8,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use sdrmm_recorder::{AUDIO_SUFFIX, AudioWriter};
+use sdrmm_recorder::{AudioWriter, create_unique};
 
 use crate::{
     EngineError,
@@ -163,29 +163,14 @@ pub fn audio_dir(recordings_dir: &Path) -> PathBuf {
 
 pub(crate) fn create_writer(
     dir: &Path,
-    ds: u32,
-    ch: u32,
-    started_at: jiff::Timestamp,
+    stem: &str,
     sample_rate: u32,
     channels: u8,
 ) -> Result<AudioWriter, EngineError> {
-    let base = format!("ch_{ds}_{ch}_{}", started_at.strftime("%Y%m%dT%H%M%SZ"));
-    let mut name = format!("{base}{AUDIO_SUFFIX}");
-    let mut n = 1u32;
-    loop {
-        match AudioWriter::create(&dir.join(&name), sample_rate, channels) {
-            Ok(writer) => return Ok(writer),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => {
-                return Err(EngineError::RecordingIo(format!(
-                    "create {}: {e}",
-                    dir.join(&name).display()
-                )));
-            }
-        }
-        n += 1;
-        name = format!("{base}-{n}{AUDIO_SUFFIX}");
-    }
+    create_unique(dir, stem, |path| {
+        AudioWriter::create(path, sample_rate, channels)
+    })
+    .map_err(|e| EngineError::RecordingIo(format!("create {stem} in {}: {e}", dir.display())))
 }
 
 #[cfg(test)]
@@ -299,10 +284,9 @@ mod tests {
     #[test]
     fn a_claimed_name_advances_the_suffix() {
         let dir = TempDir::new().expect("tempdir");
-        let at = jiff::Timestamp::UNIX_EPOCH;
         let names: Vec<String> = (0..3)
             .map(|_| {
-                let writer = create_writer(dir.path(), 2, 7, at, RATE, 1).expect("create");
+                let writer = create_writer(dir.path(), "rec", RATE, 1).expect("create");
                 let name = writer
                     .path()
                     .file_name()
@@ -313,13 +297,6 @@ mod tests {
                 name
             })
             .collect();
-        assert_eq!(
-            names,
-            [
-                "ch_2_7_19700101T000000Z.wav",
-                "ch_2_7_19700101T000000Z-2.wav",
-                "ch_2_7_19700101T000000Z-3.wav"
-            ]
-        );
+        assert_eq!(names, ["rec.wav", "rec-2.wav", "rec-3.wav"]);
     }
 }
