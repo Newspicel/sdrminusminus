@@ -62,10 +62,6 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 - TETRA, Tetrapol
 - GSM downlink analysis, OsmocomBB-style monitoring
 
-### Broadcast & wideband
-- Real-world validation of DRM, DVB-T, DVB-S/S2, S2X Annex E and DAB modes II to IV: real
-  transmitters, fading, adjacent-channel interference. Today only synthetic IQ
-
 ### ISM & IoT
 - ISM remotes and sensors (OOK/FSK)
 - LoRa (ChirpChat), LoRaWAN frames, Meshtastic, MeshCore
