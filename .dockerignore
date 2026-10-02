@@ -14,10 +14,13 @@ web/node_modules
 web/dist
 apps/desktop/gen
 
-# Recorded IQ test fixtures, megabytes of them. Only broadcast_audio is kept: the signal
-# generator compiles those few encoded media files into the binary.
+# Recorded IQ test fixtures, megabytes of them. Only broadcast_audio and the DRM AAC frames are
+# kept: the signal generator compiles those few encoded media files into the binary.
 fixtures/*
 !fixtures/broadcast_audio
+!fixtures/drm
+fixtures/drm/*
+!fixtures/drm/*.aus
 
 # The media stage builds FFmpeg itself; a developer's local build tree and prefix are megabytes
 # of context no stage reads.

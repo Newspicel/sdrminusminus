@@ -322,6 +322,34 @@
     "host": "x86_64-linux"
   },
   {
+    "bench": "apt",
+    "msamples_per_s": 31.42,
+    "realtime_factor": 523.7,
+    "config": "noise including deferred decode slots, 60000 Hz, 2048 sample blocks",
+    "host": "x86_64-linux"
+  },
+  {
+    "bench": "lrpt",
+    "msamples_per_s": 14.07,
+    "realtime_factor": 48.9,
+    "config": "noise including deferred decode slots, 288000 Hz, 2048 sample blocks",
+    "host": "x86_64-linux"
+  },
+  {
+    "bench": "radiosonde",
+    "msamples_per_s": 16.64,
+    "realtime_factor": 346.6,
+    "config": "noise including deferred decode slots, 48000 Hz, 2048 sample blocks",
+    "host": "x86_64-linux"
+  },
+  {
+    "bench": "wefax",
+    "msamples_per_s": 74.11,
+    "realtime_factor": 6175.6,
+    "config": "noise including deferred decode slots, 12000 Hz, 2048 sample blocks",
+    "host": "x86_64-linux"
+  },
+  {
     "bench": "__calibration",
     "msamples_per_s": 900.4737342219196,
     "realtime_factor": 0.0,

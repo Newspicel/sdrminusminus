@@ -377,16 +377,19 @@ fn is_backend_change(root: &Path, event: &Event) -> bool {
     })
 }
 
-fn rust_server_command(root: &Path) -> Command {
+fn rust_server_command(root: &Path, media: Option<&Path>) -> Command {
     let mut server = Command::new("cargo");
     server
         .args(["run", "-p", "sdrmm", "--", "--dev-cors"])
         .current_dir(root);
+    if let Some(dir) = media {
+        server.envs(media_env(dir));
+    }
     server
 }
 
 fn spawn_rust_server(root: &Path) -> Result<Child> {
-    let mut server = rust_server_command(root);
+    let mut server = rust_server_command(root, media_dir(root, None)?.as_deref());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut server, 0);
     server.spawn().context("spawn Rust server")
@@ -493,6 +496,7 @@ mod dev_tests {
 #[cfg(test)]
 mod dev_command_tests {
     use super::*;
+    use std::ffi::OsStr;
 
     #[test]
     fn dev_watches_backend_only_with_the_flag() {
@@ -513,13 +517,26 @@ mod dev_command_tests {
     #[test]
     fn rust_server_command_enables_development_cors() {
         let root = Path::new("workspace");
-        let server = rust_server_command(root);
+        let server = rust_server_command(root, None);
 
         assert_eq!(server.get_program(), "cargo");
         assert_eq!(server.get_current_dir(), Some(root));
         assert_eq!(
             server.get_args().collect::<Vec<_>>(),
             ["run", "-p", "sdrmm", "--", "--dev-cors"]
+        );
+    }
+
+    #[test]
+    fn rust_server_command_builds_and_runs_against_the_bundled_media() {
+        let media = Path::new("workspace/.media/host");
+        let server = rust_server_command(Path::new("workspace"), Some(media));
+        let env: Vec<_> = server.get_envs().collect();
+
+        assert!(env.contains(&(OsStr::new("FFMPEG_DIR"), Some(media.as_os_str()))));
+        assert_eq!(
+            env.iter().any(|(key, _)| *key == "LD_LIBRARY_PATH"),
+            cfg!(target_os = "linux")
         );
     }
 
@@ -1038,16 +1055,20 @@ fn run_against_media(args: &[&str], cwd: &Path, media: Option<&Path>) -> Result<
     };
     retry(attempts, || match media {
         Some(dir) => {
-            let library_path = linux_library_path(dir);
-            let mut env = vec![("FFMPEG_DIR", dir.to_string_lossy().into_owned())];
-            if cfg!(target_os = "linux") {
-                env.push(("LD_LIBRARY_PATH", library_path));
-            }
+            let env = media_env(dir);
             let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
             run_with_env("cargo", args, cwd, &env)
         }
         None => run("cargo", args, cwd),
     })
+}
+
+fn media_env(dir: &Path) -> Vec<(&'static str, String)> {
+    let mut env = vec![("FFMPEG_DIR", dir.to_string_lossy().into_owned())];
+    if cfg!(target_os = "linux") {
+        env.push(("LD_LIBRARY_PATH", linux_library_path(dir)));
+    }
+    env
 }
 
 fn linux_library_path(media: &Path) -> String {

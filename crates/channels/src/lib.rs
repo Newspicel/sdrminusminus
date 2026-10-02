@@ -1010,6 +1010,7 @@ mod tests {
                         | "atv"
                         | "dab"
                         | "datv"
+                        | "drm"
                         | "dvbt"
                         | "dmr"
                         | "dstar"
