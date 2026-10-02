@@ -26,7 +26,7 @@ covers the modes that need more than a frequency.
 | Experimental | Partly works. See the limits below. |
 
 Fixtures catch decoding bugs but say little about drift, fading, or interference. The
-[fixture library](https://github.com/Newspicel/sdrminusminus/blob/main/fixtures/README.md) lists
+[fixture library](https://github.com/Newspicel/sdrmm/blob/main/fixtures/README.md) lists
 where each recording came from. VDL Mode 2, HFDL, Inmarsat Classic Aero and STD-C, DSC and
 Iridium started as ports of [xng](https://github.com/airframesio/xng). Inmarsat Classic Aero reads
 the P channel, R/T bursts from aircraft, or a C voice circuit; pick one on the node.

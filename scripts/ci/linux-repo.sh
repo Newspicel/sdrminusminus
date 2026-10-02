@@ -43,8 +43,8 @@ cp "${rpms[@]}" "$out/rpm/"
 rpmsign --define "_gpg_name $key" --define "__gpg $(command -v gpg)" --addsign "$out"/rpm/*.rpm
 createrepo_c "$out/rpm"
 gpg --batch --yes --local-user "$key" --armor --detach-sign "$out/rpm/repodata/repomd.xml"
-cat > "$out/rpm/sdrminusminus.repo" <<EOF
-[sdrminusminus]
+cat > "$out/rpm/sdrmm.repo" <<EOF
+[sdrmm]
 name=SDR--
 baseurl=$url/rpm
 enabled=1

@@ -413,7 +413,7 @@ private fun ValueRow(
     }
 }
 
-const val SOURCE_URL = "https://github.com/newspicel/sdrminusminus"
+const val SOURCE_URL = "https://github.com/newspicel/sdrmm"
 
 private fun openSource(
     context: Context,

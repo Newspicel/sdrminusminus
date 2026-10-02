@@ -84,7 +84,7 @@ application updates. Release CI requires signatures and builds the update manife
 cargo xtask updater-manifest \
   --version 1.2.3 \
   --dir dist/release \
-  --base-url https://github.com/Newspicel/sdrminusminus/releases/download/v1.2.3
+  --base-url https://github.com/Newspicel/sdrmm/releases/download/v1.2.3
 ```
 
 ## Containers
@@ -92,8 +92,8 @@ cargo xtask updater-manifest \
 Releases publish Linux `amd64` and `arm64` images:
 
 ```text
-ghcr.io/newspicel/sdrminusminus:<version>
-ghcr.io/newspicel/sdrminusminus:latest
+ghcr.io/newspicel/sdrmm:<version>
+ghcr.io/newspicel/sdrmm:latest
 ```
 
 Nightlies update only `:nightly`. Smoke tests check the binary, SoapySDR modules, server startup,
@@ -101,14 +101,14 @@ and embedded frontend. CI builds and smoke-tests both architectures.
 
 ## Homebrew tap
 
-The release workflow updates the `sdrmm` formula and `sdrminusminus` cask in
-`Newspicel/homebrew-tap` after publishing stable downloads:
+The `sdrmm` formula lives in homebrew-core. The release workflow updates the `sdrmm-app`
+cask in `Newspicel/homebrew-tap` after publishing stable downloads:
 
 ```sh
 cargo xtask homebrew-tap \
   --version 1.2.3 \
   --sums SHA256SUMS \
-  --repo Newspicel/sdrminusminus \
+  --repo Newspicel/sdrmm \
   --out ../homebrew-tap
 ```
 
@@ -119,7 +119,6 @@ Validate generator changes:
 
 ```sh
 brew style newspicel/tap
-brew audit --strict --online newspicel/tap/sdrmm
 brew audit --strict --online --cask newspicel/tap/sdrmm-app
 ```
 

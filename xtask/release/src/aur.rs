@@ -30,6 +30,7 @@ struct Package {
     name: &'static str,
     url: &'static str,
     provides: &'static str,
+    conflicts: &'static [&'static str],
     desc: &'static str,
     depends: &'static [&'static str],
     sources: Vec<Source>,
@@ -88,9 +89,10 @@ fn sources(
 
 fn desktop(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
     Ok(Package {
-        name: "sdrminusminus-bin",
+        name: "sdrmm-app-bin",
         url: HOMEPAGE,
-        provides: "sdrminusminus",
+        provides: "sdrmm-app",
+        conflicts: &["sdrmm-app", "sdrminusminus"],
         desc: "Modular software-defined radio, desktop app",
         depends: &[
             "cairo",
@@ -104,10 +106,10 @@ fn desktop(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
             "webkit2gtk-4.1",
         ],
         sources: sources(digests, version, repo, |arch| {
-            format!("sdrminusminus_{version}_{}.deb", arch.deb)
+            format!("sdrmm-app_{version}_{}.deb", arch.deb)
         })?,
         install: "  bsdtar -xf data.tar.gz -C \"$pkgdir\"\n  install -Dm644 \
-                  \"$pkgdir/usr/lib/sdrminusminus/THIRD_PARTY_NOTICES.md\" -t \
+                  \"$pkgdir/usr/lib/sdrmm-app/THIRD_PARTY_NOTICES.md\" -t \
                   \"$pkgdir/usr/share/licenses/$pkgname/\""
             .to_string(),
     })
@@ -118,6 +120,7 @@ fn server(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
         name: "sdrmm-bin",
         url: HOMEPAGE,
         provides: "sdrmm",
+        conflicts: &["sdrmm"],
         desc: "Modular software-defined radio, headless server",
         depends: &["gcc-libs", "glibc"],
         sources: sources(digests, version, repo, |arch| {
@@ -160,7 +163,7 @@ fn pkgbuild(package: &Package, version: &str) -> String {
     format!(
         "pkgname={name}\npkgver={pkgver}\npkgrel=1\npkgdesc='{desc}'\narch=({arches})\n\
          url='{url}'\nlicense=('AGPL-3.0-or-later')\ndepends=({depends})\noptdepends=('{SOAPY}')\n\
-         provides=('{provides}')\nconflicts=('{provides}')\noptions=('!strip' '!debug')\n\
+         provides=('{provides}')\nconflicts=({conflicts})\noptions=('!strip' '!debug')\n\
          {arch_lines}\npackage() {{\n{install}\n}}\n",
         name = package.name,
         pkgver = pkgver(version),
@@ -169,6 +172,7 @@ fn pkgbuild(package: &Package, version: &str) -> String {
         url = package.url,
         depends = quoted(package.depends),
         provides = package.provides,
+        conflicts = quoted(package.conflicts),
         install = package.install,
     )
 }
@@ -196,7 +200,12 @@ fn srcinfo(package: &Package, version: &str) -> String {
     );
     lines.push(format!("\toptdepends = {SOAPY}"));
     lines.push(format!("\tprovides = {}", package.provides));
-    lines.push(format!("\tconflicts = {}", package.provides));
+    lines.extend(
+        package
+            .conflicts
+            .iter()
+            .map(|conflict| format!("\tconflicts = {conflict}")),
+    );
     lines.push("\toptions = !strip".to_string());
     lines.push("\toptions = !debug".to_string());
     for source in &package.sources {
@@ -215,13 +224,13 @@ fn srcinfo(package: &Package, version: &str) -> String {
 mod tests {
     use super::*;
 
-    const REPO: &str = "Newspicel/sdrminusminus";
+    const REPO: &str = "Newspicel/sdrmm";
 
     fn sums() -> String {
         let mut lines = Vec::new();
         for arch in ARCHES {
             lines.push(format!(
-                "{}  sdrminusminus_1.2.3_{}.deb",
+                "{}  sdrmm-app_1.2.3_{}.deb",
                 "d".repeat(64),
                 arch.deb
             ));
@@ -239,11 +248,12 @@ mod tests {
         let package = desktop(&parse(&sums()).unwrap(), "1.2.3", REPO).unwrap();
         let pkgbuild = pkgbuild(&package, "1.2.3");
         assert!(pkgbuild.contains(&format!(
-            "source_x86_64=('sdrminusminus_1.2.3_amd64.deb::https://github.com/{REPO}/releases/download/v1.2.3/sdrminusminus_1.2.3_amd64.deb')\nsha256sums_x86_64=('{}')",
+            "source_x86_64=('sdrmm-app_1.2.3_amd64.deb::https://github.com/{REPO}/releases/download/v1.2.3/sdrmm-app_1.2.3_amd64.deb')\nsha256sums_x86_64=('{}')",
             "d".repeat(64)
         )), "{pkgbuild}");
-        assert!(pkgbuild.contains("sdrminusminus_1.2.3_arm64.deb"));
+        assert!(pkgbuild.contains("sdrmm-app_1.2.3_arm64.deb"));
         assert!(pkgbuild.contains("depends=('cairo' "));
+        assert!(pkgbuild.contains("conflicts=('sdrmm-app' 'sdrminusminus')"));
     }
 
     #[test]

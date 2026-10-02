@@ -22,7 +22,7 @@ Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
 ## Install
 
 Download a desktop installer or portable server from
-[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
+[GitHub Releases](https://github.com/Newspicel/sdrmm/releases).
 The [installation guide](https://sdrmm.com/docs/getting-started/install)
 covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, Nix, and Docker.
 
@@ -32,10 +32,10 @@ On macOS:
 brew install newspicel/tap/sdrmm-app
 ```
 
-For a headless server on macOS or Linux, install `sdrmm` from the same tap:
+For a headless server on macOS or Linux, install `sdrmm` from Homebrew core:
 
 ```sh
-brew install newspicel/tap/sdrmm
+brew install sdrmm
 brew services start sdrmm
 ```
 
@@ -86,8 +86,8 @@ These captures use debug-build signal sources and repository IQ fixtures. Regene
 ## Build
 
 ```sh
-git clone https://github.com/Newspicel/sdrminusminus.git
-cd sdrminusminus
+git clone https://github.com/Newspicel/sdrmm.git
+cd sdrmm
 python3 scripts/build-media.py
 export FFMPEG_DIR="$(python3 scripts/build-media.py --print-prefix)"
 pnpm --dir web install --frozen-lockfile

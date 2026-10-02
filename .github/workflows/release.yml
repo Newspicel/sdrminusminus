@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: ghcr.io/newspicel/sdrminusminus
+  IMAGE_NAME: ghcr.io/newspicel/sdrmm
   SDRMM_RELEASE: ${{ github.ref_type == 'tag' && '1' || '' }}
 
 jobs:
@@ -253,7 +253,9 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.IMAGE_NAME }}
+            ghcr.io/newspicel/sdrminusminus
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -488,7 +490,7 @@ jobs:
           repository: ${{ github.repository_owner }}/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
-      - name: Write formula and cask
+      - name: Write cask
         run: |
           cargo xtask-release homebrew-tap \
             --version "${{ needs.version.outputs.version }}" \
@@ -500,10 +502,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm --quiet --ignore-unmatch Casks/sdrminusminus.rb
-          git add Formula/sdrmm.rb Casks/sdrmm-app.rb cask_renames.json
+          git rm --quiet --ignore-unmatch Casks/sdrminusminus.rb Formula/sdrmm.rb
+          git add Casks/sdrmm-app.rb cask_renames.json tap_migrations.json
           git diff --cached --quiet && exit 0
-          git commit -m "sdrmm ${{ needs.version.outputs.version }}"
+          git commit -m "sdrmm-app ${{ needs.version.outputs.version }}"
           git push
 
   winget:
@@ -518,7 +520,7 @@ jobs:
       - name: Listed
         id: listed
         run: |
-          if gh api repos/microsoft/winget-pkgs/contents/manifests/n/Newspicel/SDRminusminus --silent; then
+          if gh api repos/microsoft/winget-pkgs/contents/manifests/n/Newspicel/SDRmm --silent; then
             echo "listed=true" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Not in winget-pkgs yet, skipping"
@@ -534,7 +536,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
-          "$RUNNER_TEMP/komac" update Newspicel.SDRminusminus \
+          "$RUNNER_TEMP/komac" update Newspicel.SDRmm \
             --version "$VERSION" \
             --urls "$base/SDR--_${VERSION}_x64-setup.exe" "$base/SDR--_${VERSION}_arm64-setup.exe" \
             --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
@@ -569,7 +571,7 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for pkg in sdrminusminus-bin sdrmm-bin; do
+          for pkg in sdrmm-app-bin sdrmm-bin; do
             git clone "ssh://aur@aur.archlinux.org/$pkg.git" "$RUNNER_TEMP/$pkg"
             cp "$RUNNER_TEMP/generated/$pkg/PKGBUILD" "$RUNNER_TEMP/generated/$pkg/.SRCINFO" "$RUNNER_TEMP/$pkg/"
             git -C "$RUNNER_TEMP/$pkg" add PKGBUILD .SRCINFO

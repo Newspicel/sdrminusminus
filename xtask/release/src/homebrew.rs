@@ -5,16 +5,11 @@ use anyhow::{Context, Result};
 use crate::HOMEPAGE;
 use crate::sums::{Digests, digest, parse};
 
-const FORMULA_TRIPLES: [&str; 4] = [
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
-    "aarch64-unknown-linux-gnu",
-    "x86_64-unknown-linux-gnu",
-];
-
 const CASK_ARCHES: [&str; 2] = ["aarch64", "x64"];
 
 const CASK_RENAMES: &str = "{\n  \"sdrminusminus\": \"sdrmm-app\"\n}\n";
+
+const TAP_MIGRATIONS: &str = "{\n  \"sdrmm\": \"homebrew/core\"\n}\n";
 
 pub fn tap(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
     let text = std::fs::read_to_string(sums).with_context(|| format!("read {}", sums.display()))?;
@@ -22,9 +17,9 @@ pub fn tap(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
     let version = version.strip_prefix('v').unwrap_or(version);
 
     for (relative, contents) in [
-        ("Formula/sdrmm.rb", formula(&digests, version, repo)?),
         ("Casks/sdrmm-app.rb", cask(&digests, version, repo)?),
         ("cask_renames.json", CASK_RENAMES.to_owned()),
+        ("tap_migrations.json", TAP_MIGRATIONS.to_owned()),
     ] {
         let path = out.join(relative);
         let dir = path.parent().context("a tap path with no directory")?;
@@ -33,94 +28,6 @@ pub fn tap(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
         println!("wrote {}", path.display());
     }
     Ok(())
-}
-
-fn formula(digests: &Digests, version: &str, repo: &str) -> Result<String> {
-    let mut archives = Vec::new();
-    for triple in FORMULA_TRIPLES {
-        let file = format!("sdrmm-{version}-{triple}.tar.gz");
-        archives.push(format!(
-            "      url \"https://github.com/{repo}/releases/download/v{version}/{file}\"\n      \
-             sha256 \"{}\"",
-            digest(digests, &file)?
-        ));
-    }
-    let [mac_arm, mac_intel, linux_arm, linux_intel] = archives
-        .try_into()
-        .ok()
-        .context("one archive per formula triple")?;
-
-    Ok(format!(
-        r##"class Sdrmm < Formula
-  desc "Modular, client-server software-defined radio"
-  homepage "{HOMEPAGE}"
-  license "AGPL-3.0-or-later"
-
-  livecheck do
-    url :stable
-    strategy :github_latest
-  end
-
-  depends_on "soapysdr"
-
-  on_macos do
-    on_arm do
-{mac_arm}
-    end
-    on_intel do
-{mac_intel}
-    end
-  end
-
-  on_linux do
-    depends_on "patchelf" => :build
-
-    on_arm do
-{linux_arm}
-    end
-    on_intel do
-{linux_intel}
-    end
-  end
-
-  def install
-    bin.install "sdrmm"
-    (lib/"sdrmm").install Dir["*.dylib", "*.so*"]
-    doc.install "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md"
-
-    if OS.mac?
-      MachO::Tools.add_rpath(bin/"sdrmm", formula_opt_lib("soapysdr").to_s)
-      system "codesign", "--sign", "-", "--force", bin/"sdrmm"
-    else
-      system formula_opt_bin("patchelf")/"patchelf",
-             "--set-rpath", "#{{formula_opt_lib("soapysdr")}}:#{{lib}}/sdrmm", bin/"sdrmm"
-    end
-  end
-
-  def caveats
-    <<~EOS
-      RTL-SDR, HackRF, Airspy, Airspy HF+, RTL-TCP and SpyServer receivers are built in.
-      Other hardware is reached through SoapySDR modules, which install separately:
-        brew install soapybladerf soapyremote
-
-      Start the server on port 8080 with `sdrmm`, or in the background with
-      `brew services start sdrmm`. `sdrmm --doctor` reports what this build can see.
-    EOS
-  end
-
-  service do
-    run [opt_bin/"sdrmm"]
-    log_path var/"log/sdrmm.log"
-    error_log_path var/"log/sdrmm.log"
-  end
-
-  test do
-    assert_match version.to_s, shell_output("#{{bin}}/sdrmm --version")
-    assert_match "SoapySDR runtime", shell_output("#{{bin}}/sdrmm --doctor")
-  end
-end
-"##
-    ))
 }
 
 fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
@@ -171,33 +78,15 @@ end
 mod tests {
     use super::*;
 
-    const REPO: &str = "Newspicel/sdrminusminus";
+    const REPO: &str = "Newspicel/sdrmm";
 
     fn sums() -> String {
         let mut lines = Vec::new();
-        for triple in FORMULA_TRIPLES {
-            lines.push(format!("{}  sdrmm-1.2.3-{triple}.tar.gz", "a".repeat(64)));
-        }
         for arch in CASK_ARCHES {
             lines.push(format!("{}  SDR--_1.2.3_{arch}.dmg", "b".repeat(64)));
         }
         lines.push(format!("{}  latest.json", "c".repeat(64)));
         lines.join("\n") + "\n"
-    }
-
-    #[test]
-    fn formula_carries_a_download_for_every_supported_target() {
-        let formula = formula(&parse(&sums()).unwrap(), "1.2.3", REPO).unwrap();
-        for triple in FORMULA_TRIPLES {
-            assert!(
-                formula.contains(&format!(
-                    "download/v1.2.3/sdrmm-1.2.3-{triple}.tar.gz\"\n      sha256"
-                )),
-                "{triple} is missing from:\n{formula}"
-            );
-        }
-        assert_eq!(formula.matches(&"a".repeat(64)).count(), 4);
-        assert!(formula.contains("homepage \"https://sdrmm.com\""));
     }
 
     #[test]
@@ -233,6 +122,9 @@ mod tests {
         assert!(cask.contains("version \"1.2.3\""));
         let renames = std::fs::read_to_string(dir.join("cask_renames.json")).unwrap();
         assert!(renames.contains("\"sdrminusminus\": \"sdrmm-app\""));
+        let migrations = std::fs::read_to_string(dir.join("tap_migrations.json")).unwrap();
+        assert!(migrations.contains("\"sdrmm\": \"homebrew/core\""));
+        assert!(!dir.join("Formula/sdrmm.rb").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
