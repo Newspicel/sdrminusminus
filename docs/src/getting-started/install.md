@@ -8,7 +8,6 @@ sits somewhere else and you connect from a browser. Both run the same receiver.
 | [Desktop app](#desktop-app) | A radio on your computer |
 | [Portable server](#portable-server) | A Raspberry Pi, home server, or remote receiver |
 | [Homebrew](#homebrew) | macOS or Linux with Homebrew |
-| [WinGet](#winget) | Windows |
 | [APT](#apt) | Debian and Ubuntu |
 | [DNF](#dnf) | Fedora |
 | [Nix](#nix) | Linux managed with Nix |
@@ -52,18 +51,12 @@ brew services start sdrmm
 The cask installs into `/Applications`. The service starts the server at login. Open
 <http://localhost:8080>.
 
-## WinGet
-
-```powershell
-winget install Newspicel.SDRmm
-```
-
 ## APT
 
 ```sh
-curl -fsSL https://newspicel.github.io/packages/key.gpg \
+curl -fsSL https://downloads.sdrmm.com/packages/key.gpg \
   | sudo tee /usr/share/keyrings/sdrmm.gpg > /dev/null
-echo "deb [signed-by=/usr/share/keyrings/sdrmm.gpg] https://newspicel.github.io/packages/deb stable main" \
+echo "deb [signed-by=/usr/share/keyrings/sdrmm.gpg] https://downloads.sdrmm.com/packages/deb stable main" \
   | sudo tee /etc/apt/sources.list.d/sdrmm.list
 sudo apt update
 sudo apt install sdrmm-app
@@ -76,7 +69,7 @@ APT and DNF install the desktop app. For the `sdrmm` server, use the
 
 ```sh
 sudo dnf config-manager addrepo \
-  --from-repofile=https://newspicel.github.io/packages/rpm/sdrmm.repo
+  --from-repofile=https://downloads.sdrmm.com/packages/rpm/sdrmm.repo
 sudo dnf install sdrmm-app
 ```
 

@@ -20,21 +20,14 @@ brew install sdrmm
 brew services start sdrmm`,
   },
   {
-    id: "winget",
-    tab: "WinGet",
-    title: "WinGet",
-    note: "The Windows desktop app.",
-    lines: "winget install Newspicel.SDRmm",
-  },
-  {
     id: "apt",
     tab: "APT",
     title: "Debian and Ubuntu",
     note: "Signed APT repository for x86-64 and ARM64.",
-    lines: `curl -fsSL https://newspicel.github.io/packages/key.gpg \\
+    lines: `curl -fsSL https://downloads.sdrmm.com/packages/key.gpg \\
   | sudo tee /usr/share/keyrings/sdrmm.gpg > /dev/null
 echo "deb [signed-by=/usr/share/keyrings/sdrmm.gpg] \\
-https://newspicel.github.io/packages/deb stable main" \\
+https://downloads.sdrmm.com/packages/deb stable main" \\
   | sudo tee /etc/apt/sources.list.d/sdrmm.list
 sudo apt update
 sudo apt install sdrmm-app`,
@@ -45,7 +38,7 @@ sudo apt install sdrmm-app`,
     title: "Fedora",
     note: "Signed RPM repository for x86-64 and ARM64.",
     lines: `sudo dnf config-manager addrepo \\
-  --from-repofile=https://newspicel.github.io/packages/rpm/sdrmm.repo
+  --from-repofile=https://downloads.sdrmm.com/packages/rpm/sdrmm.repo
 sudo dnf install sdrmm-app`,
   },
   {
@@ -75,7 +68,7 @@ export function installFor(agent: string): string {
     return "brew";
   }
   if (/Windows/.test(agent)) {
-    return "winget";
+    return "container";
   }
   if (/Fedora|Red Hat|CentOS|Rocky|AlmaLinux|SUSE/i.test(agent)) {
     return "dnf";

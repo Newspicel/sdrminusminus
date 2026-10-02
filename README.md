@@ -24,7 +24,7 @@ Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
 Download a desktop installer or portable server from
 [GitHub Releases](https://github.com/Newspicel/sdrmm/releases).
 The [installation guide](https://sdrmm.com/docs/getting-started/install)
-covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, Nix, and Docker.
+covers macOS, Windows, Linux, Homebrew, APT, DNF, Nix, and Docker.
 
 On macOS:
 
