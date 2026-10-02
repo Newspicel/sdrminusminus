@@ -150,14 +150,22 @@ enum Denoiser {
 }
 
 impl Denoiser {
-    fn build(settings: &DenoiseSettings, nets: &dyn DenoiseNets) -> Result<Self, NeuralDenoiseError> {
+    fn build(
+        settings: &DenoiseSettings,
+        nets: &dyn DenoiseNets,
+    ) -> Result<Self, NeuralDenoiseError> {
         Ok(match settings.mode {
             DenoiseMode::Spectral => {
                 Self::Spectral(Box::new(SpectralDenoiser::new(settings.strength)))
             }
-            DenoiseMode::Rnnoise => Self::Rnnoise(Box::new(RnnoiseDenoiser::new(settings.strength))),
+            DenoiseMode::Rnnoise => {
+                Self::Rnnoise(Box::new(RnnoiseDenoiser::new(settings.strength)))
+            }
             DenoiseMode::Neural => Self::Neural(
-                Box::new(NeuralDenoiser::new(nets.net(settings.model)?, settings.strength)?),
+                Box::new(NeuralDenoiser::new(
+                    nets.net(settings.model)?,
+                    settings.strength,
+                )?),
                 settings.model,
             ),
         })
@@ -571,7 +579,8 @@ mod tests {
             input[n..n + 6].fill(3.0);
         }
         let peak_with = |profile| {
-            let mut chain = AudioChain::new(1, &settings, profile, Arc::new(FixtureNets)).expect("chain builds");
+            let mut chain = AudioChain::new(1, &settings, profile, Arc::new(FixtureNets))
+                .expect("chain builds");
             run(&mut chain, &input)[8_000..]
                 .iter()
                 .fold(0.0f32, |a, s| a.max(s.abs()))
@@ -627,9 +636,9 @@ mod tests {
             ClickProfile::Discriminator,
             Arc::new(FixtureNets),
         )
-            .expect("chain builds")
-            .process_audio(&mut interleaved)
-            .expect("chain runs");
+        .expect("chain builds")
+        .process_audio(&mut interleaved)
+        .expect("chain runs");
 
         let taken: Vec<f32> = interleaved
             .iter()

@@ -92,7 +92,8 @@ fn block<const FMA: bool, const R: usize, const W: usize>(
 ) {
     let GemmShape { depth, cols, .. } = shape;
     let mut acc = [[0.0f32; W]; R];
-    let lines: [&[f32]; R] = std::array::from_fn(|i| &lhs[(row + i) * depth..(row + i + 1) * depth]);
+    let lines: [&[f32]; R] =
+        std::array::from_fn(|i| &lhs[(row + i) * depth..(row + i + 1) * depth]);
     for k in 0..depth {
         let Some(b) = rhs[k * cols + col..].first_chunk::<W>() else {
             return;

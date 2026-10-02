@@ -110,16 +110,22 @@ pub enum DenoiseModel {
     Dpdfnet2Narrow,
     #[serde(rename = "dpdfnet8_8khz")]
     Dpdfnet8Narrow,
+    #[serde(rename = "dpdfnet2_48khz_hr")]
+    Dpdfnet2Full,
+    #[serde(rename = "dpdfnet8_48khz_hr")]
+    Dpdfnet8Full,
 }
 
 impl DenoiseModel {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Baseline,
         Self::Dpdfnet2,
         Self::Dpdfnet4,
         Self::Dpdfnet8,
         Self::Dpdfnet2Narrow,
         Self::Dpdfnet8Narrow,
+        Self::Dpdfnet2Full,
+        Self::Dpdfnet8Full,
     ];
 
     #[must_use]
@@ -131,6 +137,8 @@ impl DenoiseModel {
             Self::Dpdfnet8 => "dpdfnet8",
             Self::Dpdfnet2Narrow => "dpdfnet2_8khz",
             Self::Dpdfnet8Narrow => "dpdfnet8_8khz",
+            Self::Dpdfnet2Full => "dpdfnet2_48khz_hr",
+            Self::Dpdfnet8Full => "dpdfnet8_48khz_hr",
         }
     }
 
@@ -155,6 +163,11 @@ pub struct DenoiseModelStatus {
     pub bytes: u64,
     #[serde(flatten)]
     pub state: DenoiseModelState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DenoiseModelsResponse {
+    pub models: Vec<DenoiseModelStatus>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

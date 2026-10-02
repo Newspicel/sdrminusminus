@@ -102,10 +102,16 @@ default:
 | Passband | Cuts audio below and above two frequencies. |
 | Notches | Removes up to four chosen tones, each with its own width. |
 | Auto notch | Finds and removes steady tones. |
-| Denoise | Spectral: attenuates noise by up to 20 dB, light on CPU. Neural: the DPDFNet speech model, stronger on voice, about 10% of a core per stream. |
+| Denoise | Spectral: attenuates noise by up to 20 dB, light on CPU. RNNoise: a small built-in speech model that runs anywhere. DPDFNet: the strongest speech model, downloaded once on first use. |
 | AGC | Levels the volume. Slow suits SSB speech, fast suits tuning around. |
 
-Neural denoise is trained on speech. Leave it off for music, data tones and CW.
+RNNoise and DPDFNet are trained on speech. Leave them off for music, data tones and CW.
+
+DPDFNet comes in several sizes. Pick it, then press the download button next to the model. Base
+and 2 fit small machines, 4 and 8 sound better and cost more CPU (on a fast core, Base takes about
+3% per stream, 8 about 16%). The NB models are trained on 8 kHz narrowband voice, a good fit for
+SSB and NFM. The HR models work on full 48 kHz audio, for wideband sources such as broadcast speech.
+Models live in the data directory and can be removed from the same menu.
 
 ## Where decoded events go
 

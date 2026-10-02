@@ -8,7 +8,9 @@ mod tests;
 
 use std::sync::Arc;
 
-pub use format::{Binary, ConvSpec, Graph, Node, Op, Unary, Value, Weights, f16_to_f32, f32_to_f16};
+pub use format::{
+    Binary, ConvSpec, Graph, Node, Op, Unary, Value, Weights, f16_to_f32, f32_to_f16,
+};
 
 use plan::{Kernel, Slot, Step};
 
@@ -102,7 +104,8 @@ impl Session {
     }
 
     pub fn carry(&mut self, output: usize, input: usize) {
-        let (Some(&source), Some(&target)) = (self.net.outputs.get(output), self.net.inputs.get(input))
+        let (Some(&source), Some(&target)) =
+            (self.net.outputs.get(output), self.net.inputs.get(input))
         else {
             return;
         };
@@ -120,10 +123,7 @@ impl Session {
     pub fn run(&mut self) {
         let net = Arc::clone(&self.net);
         for step in &net.steps {
-            let t = std::time::Instant::now();
             self.step(&net, step);
-            let name = match &step.kernel { Kernel::Unary(k) => format!("unary {k:?}"), Kernel::Binary(k, w) => format!("binary {k:?} {}", w.len), Kernel::SumReduce(_) => "reduce".into(), Kernel::Copy(_) => "copy".into(), Kernel::EinSum(e) => format!("einsum {} b{} m{} n{} k{}", if e.swapped {"swap"} else {"gemm"}, e.batch, e.shape.rows, e.shape.cols, e.shape.depth), Kernel::Conv(c) => format!("conv k{:?} g{} in{} out{}", c.kernel, c.group, c.in_per_group, c.out_size[1]), Kernel::Gru(g) => format!("gru steps{} in{} h{}", g.steps, g.input, g.hidden), Kernel::RmsNorm(..) => "rms".into(), Kernel::Gather(..) => "gather".into(), Kernel::Table(_) => "pad".into() };
-            PROFILE.with(|p| *p.borrow_mut().entry(name).or_insert(0.0) += t.elapsed().as_secs_f64());
         }
     }
 
@@ -140,7 +140,9 @@ impl Session {
         };
         match &step.kernel {
             Kernel::Unary(kind) => kernels::unary(net.vector, *kind, read(0), &mut first),
-            Kernel::Binary(kind, walk) => kernels::binary(*kind, walk, read(0), read(1), &mut first),
+            Kernel::Binary(kind, walk) => {
+                kernels::binary(*kind, walk, read(0), read(1), &mut first)
+            }
             Kernel::SumReduce(walk) => kernels::sum_reduce(walk, read(0), &mut first),
             Kernel::Copy(parts) => {
                 for (index, (walk, src_base, dst_base)) in parts.iter().enumerate() {
@@ -151,7 +153,14 @@ impl Session {
                 einsum.run(net.vector, read(0), read(1), &mut first, &mut self.scratch);
             }
             Kernel::Conv(conv) => {
-                conv.run(net.vector, read(0), read(1), read(2), &mut first, &mut self.scratch);
+                conv.run(
+                    net.vector,
+                    read(0),
+                    read(1),
+                    read(2),
+                    &mut first,
+                    &mut self.scratch,
+                );
             }
             Kernel::Gru(gru) => gru.run(
                 net.vector,
@@ -172,6 +181,3 @@ impl Session {
         }
     }
 }
-
-thread_local! { pub static PROFILE: std::cell::RefCell<std::collections::HashMap<String, f64>> = Default::default(); }
-pub fn dump_profile() { PROFILE.with(|p| { let mut v: Vec<_> = p.borrow().iter().map(|(k,v)| (k.clone(), *v)).collect(); v.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap()); let total: f64 = v.iter().map(|x| x.1).sum(); for (k, t) in v.iter().take(25) { eprintln!("{:6.1}% {k}", t/total*100.0); } }); }

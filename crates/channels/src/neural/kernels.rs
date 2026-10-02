@@ -122,7 +122,11 @@ impl Operand {
     }
 
     pub(super) fn scratch_len(&self) -> usize {
-        if self.packed.is_some() || self.direct { 0 } else { self.len() }
+        if self.packed.is_some() || self.direct {
+            0
+        } else {
+            self.len()
+        }
     }
 
     pub(super) fn pack(&self, src: &[f32]) -> Vec<f32> {
@@ -155,7 +159,7 @@ impl Operand {
     }
 }
 
-pub struct EinSum {
+pub(super) struct EinSum {
     pub(super) shape: GemmShape,
     pub(super) batch: usize,
     pub(super) lhs: Operand,
@@ -169,11 +173,22 @@ pub struct EinSum {
 
 impl EinSum {
     pub(super) fn scratch_len(&self) -> usize {
-        let out = if self.out_direct { 0 } else { self.batch * self.shape.rows * self.shape.cols };
+        let out = if self.out_direct {
+            0
+        } else {
+            self.batch * self.shape.rows * self.shape.cols
+        };
         self.lhs.scratch_len() + self.rhs.scratch_len() + out
     }
 
-    pub(super) fn run(&self, vector: Vector, a: &[f32], b: &[f32], c: &mut [f32], scratch: &mut [f32]) {
+    pub(super) fn run(
+        &self,
+        vector: Vector,
+        a: &[f32],
+        b: &[f32],
+        c: &mut [f32],
+        scratch: &mut [f32],
+    ) {
         let (lhs_src, rhs_src) = if self.swapped { (b, a) } else { (a, b) };
         let (lhs_scratch, rest) = scratch.split_at_mut(self.lhs.scratch_len());
         let (rhs_scratch, out_scratch) = rest.split_at_mut(self.rhs.scratch_len());
@@ -203,7 +218,7 @@ impl EinSum {
     }
 }
 
-pub struct Conv {
+pub(super) struct Conv {
     pub(super) group: usize,
     pub(super) in_per_group: usize,
     pub(super) out_per_group: usize,
@@ -306,7 +321,7 @@ impl Conv {
     }
 }
 
-pub struct Gru {
+pub(super) struct Gru {
     pub(super) hidden: usize,
     pub(super) backward: bool,
     pub(super) batch: usize,
@@ -354,7 +369,11 @@ impl Gru {
             }
             state.copy_from_slice(&h0[batch * h..(batch + 1) * h]);
             for step in 0..self.steps {
-                let t = if self.backward { self.steps - 1 - step } else { step };
+                let t = if self.backward {
+                    self.steps - 1 - step
+                } else {
+                    step
+                };
                 vector.gemm(
                     GemmShape {
                         rows: 1,
@@ -398,7 +417,10 @@ pub(super) fn rms_norm(split: &Split, eps: f32, input: &[f32], out: &mut [f32]) 
     for o in 0..outer {
         for i in 0..inner {
             let base = o * len * inner + i;
-            let mean = (0..len).map(|j| input[base + j * inner].powi(2)).sum::<f32>() / len as f32;
+            let mean = (0..len)
+                .map(|j| input[base + j * inner].powi(2))
+                .sum::<f32>()
+                / len as f32;
             let scale = 1.0 / (mean + eps).sqrt();
             for j in 0..len {
                 out[base + j * inner] = input[base + j * inner] * scale;

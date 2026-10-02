@@ -85,7 +85,10 @@ impl DenoiseModels {
 
     fn load(&self, model: DenoiseModel) -> Result<Arc<Net>, NeuralDenoiseError> {
         let missing = || NeuralDenoiseError(format!("{} is not downloaded", model.name()));
-        let path = self.path(model).filter(|path| path.is_file()).ok_or_else(missing)?;
+        let path = self
+            .path(model)
+            .filter(|path| path.is_file())
+            .ok_or_else(missing)?;
         let bytes = std::fs::read(&path).map_err(|error| NeuralDenoiseError(error.to_string()))?;
         Ok(Arc::new(Net::load(&bytes)?))
     }

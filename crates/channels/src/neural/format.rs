@@ -65,16 +65,42 @@ pub enum Op {
     Alias,
     Unary(Unary),
     Binary(Binary),
-    SumReduce { axes: Vec<usize> },
-    Slice { axis: usize, start: usize, end: usize },
-    Concat { axis: usize },
-    Transpose { perm: Vec<usize> },
-    EinSum { a: Vec<u8>, b: Vec<u8>, out: Vec<u8> },
+    SumReduce {
+        axes: Vec<usize>,
+    },
+    Slice {
+        axis: usize,
+        start: usize,
+        end: usize,
+    },
+    Concat {
+        axis: usize,
+    },
+    Transpose {
+        perm: Vec<usize>,
+    },
+    EinSum {
+        a: Vec<u8>,
+        b: Vec<u8>,
+        out: Vec<u8>,
+    },
     Conv(ConvSpec),
-    Gru { hidden: usize, backward: bool },
-    RmsNorm { axis: usize, eps: f32 },
-    Gather { axis: usize, indices: Vec<usize> },
-    PadReflect { before: Vec<usize>, after: Vec<usize> },
+    Gru {
+        hidden: usize,
+        backward: bool,
+    },
+    RmsNorm {
+        axis: usize,
+        eps: f32,
+    },
+    Gather {
+        axis: usize,
+        indices: Vec<usize>,
+    },
+    PadReflect {
+        before: Vec<usize>,
+        after: Vec<usize>,
+    },
 }
 
 impl Graph {

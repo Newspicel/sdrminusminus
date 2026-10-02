@@ -1,5 +1,19 @@
-import { Plus, X } from "lucide-react";
-import type { AudioAgcMode, AudioProcessing, DenoiseMode, NotchSettings } from "../lib/types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, Plus, RotateCw, Trash2, X } from "lucide-react";
+import {
+  DENOISE_MODELS_KEY,
+  deleteDenoiseModel,
+  denoiseModelsQuery,
+  downloadDenoiseModel,
+} from "../lib/api";
+import type {
+  AudioAgcMode,
+  AudioProcessing,
+  DenoiseMode,
+  DenoiseModel,
+  DenoiseModelStatus,
+  NotchSettings,
+} from "../lib/types";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import {
@@ -12,10 +26,11 @@ import {
 } from "./channelSettings";
 import { CHIP_SETTING, ICON_BTN_SM, type Options } from "./controls";
 import { ChipField, ChoiceChip, SettingChip, ToggleChip } from "./face/Chips";
-import { formatHz } from "./format";
+import { formatBytes, formatHz } from "./format";
 import { Icon } from "./Icon";
 import { NumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
+import { Select } from "./Select";
 import { SliderField } from "./Slider";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
@@ -32,7 +47,19 @@ const DENOISE_MODES: Options<DenoiseMode> = [
     label: "Spectral",
     title: "Light and fast, for steady hiss",
   },
-  { value: "neural", label: "Neural", title: "DPDFNet speech model, for voice" },
+  { value: "rnnoise", label: "RNNoise", title: "Small speech model, runs anywhere" },
+  { value: "neural", label: "DPDFNet", title: "Best speech model, downloaded once" },
+];
+
+const DENOISE_MODELS: Options<DenoiseModel> = [
+  { value: "baseline", label: "Base", title: "Lightest" },
+  { value: "dpdfnet2", label: "DPDFNet 2", title: "Balanced" },
+  { value: "dpdfnet4", label: "DPDFNet 4", title: "Stronger, more CPU" },
+  { value: "dpdfnet8", label: "DPDFNet 8", title: "Best, most CPU" },
+  { value: "dpdfnet2_8khz", label: "DPDFNet 2 NB", title: "Narrowband voice, 8 kHz" },
+  { value: "dpdfnet8_8khz", label: "DPDFNet 8 NB", title: "Narrowband voice, 8 kHz, best" },
+  { value: "dpdfnet2_48khz_hr", label: "DPDFNet 2 HR", title: "Full band, 48 kHz" },
+  { value: "dpdfnet8_48khz_hr", label: "DPDFNet 8 HR", title: "Full band, 48 kHz, best, most CPU" },
 ];
 
 type Edit = (patch: Partial<AudioProcessing>) => void;
@@ -140,7 +167,13 @@ function DeclickChip({ audio, edit }: { audio: AudioProcessing; edit: Edit }) {
 function DenoiseChip({ audio, edit }: { audio: AudioProcessing; edit: Edit }) {
   const denoise = audio.denoise ?? {};
   const enabled = denoise.enabled ?? false;
+  const mode = denoise.mode ?? "spectral";
+  const model = denoise.model ?? "dpdfnet2";
   const strength = denoise.strength ?? AUDIO_DEFAULTS.denoiseStrength;
+  const neural = mode === "neural";
+  const models = useQuery(denoiseModelsQuery(enabled && neural));
+  const status = models.data?.models.find((entry) => entry.model === model);
+  const missing = enabled && neural && status !== undefined && status.state !== "ready";
   const slider = useDebouncedCommit((next: number) =>
     edit({ denoise: { ...denoise, strength: next } }),
   );
@@ -148,8 +181,9 @@ function DenoiseChip({ audio, edit }: { audio: AudioProcessing; edit: Edit }) {
   return (
     <SettingChip
       label="Denoise"
-      value={enabled ? `${Math.round(strength * 100)}%` : "off"}
+      value={!enabled ? "off" : missing ? "no model" : `${Math.round(strength * 100)}%`}
       quiet={!enabled}
+      tone={missing ? "danger" : undefined}
       title="Noise reduction"
     >
       {() => (
@@ -161,10 +195,22 @@ function DenoiseChip({ audio, edit }: { audio: AudioProcessing; edit: Edit }) {
           />
           <Segmented
             label="Noise reduction mode"
-            value={denoise.mode ?? "spectral"}
+            value={mode}
             options={DENOISE_MODES}
-            onChange={(mode) => edit({ denoise: { ...denoise, mode } })}
+            onChange={(next) => edit({ denoise: { ...denoise, mode: next } })}
           />
+          {neural && (
+            <>
+              <Select
+                label="DPDFNet model"
+                value={model}
+                options={DENOISE_MODELS}
+                className="w-32"
+                onChange={(next) => edit({ denoise: { ...denoise, model: next } })}
+              />
+              {status !== undefined && <ModelState status={status} />}
+            </>
+          )}
           <SliderField
             label="Noise reduction strength"
             disabled={!enabled}
@@ -184,6 +230,59 @@ function DenoiseChip({ audio, edit }: { audio: AudioProcessing; edit: Edit }) {
       )}
     </SettingChip>
   );
+}
+
+function ModelState({ status }: { status: DenoiseModelStatus }) {
+  const queryClient = useQueryClient();
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: DENOISE_MODELS_KEY });
+  const download = useMutation({ mutationFn: downloadDenoiseModel, onSettled: refresh });
+  const remove = useMutation({ mutationFn: deleteDenoiseModel, onSettled: refresh });
+  const size = formatBytes(status.bytes);
+  switch (status.state) {
+    case "ready":
+      return (
+        <Button
+          type="button"
+          className={`${ICON_BTN_SM} hover:text-danger`}
+          aria-label="Remove model"
+          title={`Remove model, frees ${size}`}
+          onClick={() => remove.mutate(status.model)}
+        >
+          <Icon glyph={Trash2} size={12} />
+        </Button>
+      );
+    case "downloading":
+      return (
+        <span className="legend tabular-nums">
+          {Math.floor((status.received / Math.max(status.bytes, 1)) * 100)}%
+        </span>
+      );
+    case "failed":
+      return (
+        <Button
+          type="button"
+          className={`${CHIP_SETTING} text-danger`}
+          title={status.error}
+          onClick={() => download.mutate(status.model)}
+        >
+          <Icon glyph={RotateCw} size={12} />
+          <span className="font-sans">Retry</span>
+        </Button>
+      );
+    case "missing":
+      return (
+        <Button
+          type="button"
+          className={CHIP_SETTING}
+          title="Download model"
+          disabled={download.isPending}
+          onClick={() => download.mutate(status.model)}
+        >
+          <Icon glyph={Download} size={12} />
+          <span className="font-sans">{size}</span>
+        </Button>
+      );
+  }
 }
 
 function PassbandChip({ audio, edit }: { audio: AudioProcessing; edit: Edit }) {

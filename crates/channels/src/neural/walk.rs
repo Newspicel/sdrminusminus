@@ -28,9 +28,7 @@ impl<const K: usize> Walk<K> {
         let mut merged: Vec<(usize, [usize; K])> = Vec::with_capacity(dims.len());
         for (len, step) in dims.drain(..) {
             match merged.last_mut() {
-                Some((last_len, last_step))
-                    if (0..K).all(|k| last_step[k] == step[k] * len) =>
-                {
+                Some((last_len, last_step)) if (0..K).all(|k| last_step[k] == step[k] * len) => {
                     *last_len *= len;
                     *last_step = step;
                 }

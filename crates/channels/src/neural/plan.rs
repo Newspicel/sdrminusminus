@@ -39,7 +39,9 @@ impl Step {
                 } else {
                     (&einsum.lhs, &einsum.rhs)
                 };
-                [a, b].get(index).is_some_and(|operand| operand.packed.is_none())
+                [a, b]
+                    .get(index)
+                    .is_some_and(|operand| operand.packed.is_none())
             }
             Kernel::Gru(_) => !matches!(index, 1 | 2),
             _ => true,
@@ -52,7 +54,11 @@ fn unsupported(message: impl Into<String>) -> NetError {
 }
 
 fn check(ok: bool, message: impl FnOnce() -> String) -> Result<(), NetError> {
-    if ok { Ok(()) } else { Err(unsupported(message())) }
+    if ok {
+        Ok(())
+    } else {
+        Err(unsupported(message()))
+    }
 }
 
 pub(super) fn compile(graph: &Graph) -> Result<Net, NetError> {
@@ -64,10 +70,16 @@ pub(super) fn compile(graph: &Graph) -> Result<Net, NetError> {
         scratch: 0,
     };
     for (id, value) in graph.values.iter().enumerate() {
-        check(value.shape.len() <= MAX_RANK, || format!("value {id} rank too high"))?;
+        check(value.shape.len() <= MAX_RANK, || {
+            format!("value {id} rank too high")
+        })?;
         if let Some(data) = &value.data {
             check(data.len() == volume(&value.shape), || {
-                format!("value {id} holds {} numbers for {:?}", data.len(), value.shape)
+                format!(
+                    "value {id} holds {} numbers for {:?}",
+                    data.len(),
+                    value.shape
+                )
             })?;
             builder.slots[id] = Some(Slot::Const(builder.consts.len()));
             builder.consts.push(data.to_f32());
@@ -82,7 +94,12 @@ pub(super) fn compile(graph: &Graph) -> Result<Net, NetError> {
         .nodes
         .iter()
         .enumerate()
-        .filter_map(|(index, node)| builder.node(node).map_err(|e| at_node(e, index)).transpose())
+        .filter_map(|(index, node)| {
+            builder
+                .node(node)
+                .map_err(|e| at_node(e, index))
+                .transpose()
+        })
         .collect::<Result<_, _>>()?;
     let outputs: Vec<Slot> = graph
         .outputs
@@ -189,10 +206,18 @@ impl Builder<'_> {
         check(arity.contains(&inputs.len()), || {
             format!("{:?} takes {arity:?} inputs, got {}", node.op, inputs.len())
         })?;
-        let expected_outputs = if matches!(node.op, Op::Gru { .. }) { 2 } else { 1 };
-        check(outs.len() == expected_outputs, || "wrong output count".into())?;
+        let expected_outputs = if matches!(node.op, Op::Gru { .. }) {
+            2
+        } else {
+            1
+        };
+        check(outs.len() == expected_outputs, || {
+            "wrong output count".into()
+        })?;
         if matches!(node.op, Op::Alias) {
-            check(volume(&shapes[0]) == volume(&outs[0]), || "alias resizes".into())?;
+            check(volume(&shapes[0]) == volume(&outs[0]), || {
+                "alias resizes".into()
+            })?;
             match self.slots.get(node.outputs[0]) {
                 Some(None) => self.slots[node.outputs[0]] = Some(inputs[0]),
                 _ => return Err(NetError::Format("alias output made twice".into())),
@@ -235,7 +260,9 @@ impl Builder<'_> {
             }
             Op::Binary(kind) => Kernel::Binary(*kind, broadcast(&ins[0], &ins[1], out)?),
             Op::SumReduce { axes } => Kernel::SumReduce(sum_reduce(&ins[0], axes, out)?),
-            Op::Slice { axis, start, end } => Kernel::Copy(vec![slice(&ins[0], *axis, *start, *end, out)?]),
+            Op::Slice { axis, start, end } => {
+                Kernel::Copy(vec![slice(&ins[0], *axis, *start, *end, out)?])
+            }
             Op::Concat { axis } => Kernel::Copy(concat(ins, *axis, out)?),
             Op::Transpose { perm } => Kernel::Copy(vec![transpose(&ins[0], perm, out)?]),
             Op::EinSum { a, b, out: labels } => {
@@ -260,7 +287,9 @@ impl Builder<'_> {
                 Kernel::RmsNorm(split(&ins[0], *axis)?, *eps)
             }
             Op::Gather { axis, indices } => gather(&ins[0], *axis, indices, out)?,
-            Op::PadReflect { before, after } => Kernel::Table(pad_reflect(&ins[0], before, after, out)?),
+            Op::PadReflect { before, after } => {
+                Kernel::Table(pad_reflect(&ins[0], before, after, out)?)
+            }
         })
     }
 }
@@ -280,14 +309,20 @@ fn same(input: &[usize], out: &[usize]) -> Result<(), NetError> {
 }
 
 fn broadcast(a: &[usize], b: &[usize], out: &[usize]) -> Result<Walk<3>, NetError> {
-    check(a.len() == out.len() && b.len() == out.len(), || "ranks differ".into())?;
+    check(a.len() == out.len() && b.len() == out.len(), || {
+        "ranks differ".into()
+    })?;
     let mut strides = [contiguous(a), contiguous(b), contiguous(out)];
     for axis in 0..out.len() {
         for (k, shape) in [a, b].into_iter().enumerate() {
             match shape[axis] {
                 len if len == out[axis] => {}
                 1 => strides[k][axis] = 0,
-                _ => return Err(unsupported(format!("{a:?} and {b:?} do not broadcast to {out:?}"))),
+                _ => {
+                    return Err(unsupported(format!(
+                        "{a:?} and {b:?} do not broadcast to {out:?}"
+                    )));
+                }
             }
         }
     }
@@ -305,7 +340,9 @@ fn sum_reduce(input: &[usize], axes: &[usize], out: &[usize]) -> Result<Walk<2>,
             check(out[axis] == input[axis], || "reduce resizes".into())?;
         }
     }
-    check(axes.iter().all(|&axis| axis < input.len()), || "bad reduce axis".into())?;
+    check(axes.iter().all(|&axis| axis < input.len()), || {
+        "bad reduce axis".into()
+    })?;
     Ok(Walk::new(input, [&contiguous(input), &out_strides]))
 }
 
@@ -316,15 +353,26 @@ fn slice(
     end: usize,
     out: &[usize],
 ) -> Result<(Walk<2>, usize, usize), NetError> {
-    check(axis < input.len() && start <= end && end <= input[axis], || "bad slice".into())?;
+    check(
+        axis < input.len() && start <= end && end <= input[axis],
+        || "bad slice".into(),
+    )?;
     let mut expected = input.to_vec();
     expected[axis] = end - start;
     same(&expected, out)?;
     let strides = contiguous(input);
-    Ok((Walk::new(out, [&strides, &contiguous(out)]), start * strides[axis], 0))
+    Ok((
+        Walk::new(out, [&strides, &contiguous(out)]),
+        start * strides[axis],
+        0,
+    ))
 }
 
-fn concat(ins: &[Vec<usize>], axis: usize, out: &[usize]) -> Result<Vec<(Walk<2>, usize, usize)>, NetError> {
+fn concat(
+    ins: &[Vec<usize>],
+    axis: usize,
+    out: &[usize],
+) -> Result<Vec<(Walk<2>, usize, usize)>, NetError> {
     check(axis < out.len(), || "bad concat axis".into())?;
     let out_strides = contiguous(out);
     let mut at = 0;
@@ -344,13 +392,18 @@ fn concat(ins: &[Vec<usize>], axis: usize, out: &[usize]) -> Result<Vec<(Walk<2>
     Ok(parts)
 }
 
-fn transpose(input: &[usize], perm: &[usize], out: &[usize]) -> Result<(Walk<2>, usize, usize), NetError> {
+fn transpose(
+    input: &[usize],
+    perm: &[usize],
+    out: &[usize],
+) -> Result<(Walk<2>, usize, usize), NetError> {
     let mut seen = vec![false; input.len()];
     check(perm.len() == input.len(), || "bad permutation".into())?;
     for &axis in perm {
-        check(axis < input.len() && !std::mem::replace(&mut seen[axis], true), || {
-            "bad permutation".into()
-        })?;
+        check(
+            axis < input.len() && !std::mem::replace(&mut seen[axis], true),
+            || "bad permutation".into(),
+        )?;
     }
     let expected: Vec<usize> = perm.iter().map(|&axis| input[axis]).collect();
     same(&expected, out)?;
@@ -414,7 +467,9 @@ fn einsum(
 ) -> Result<EinSum, NetError> {
     let strides = shapes.map(contiguous);
     for k in 0..3 {
-        check(labels[k].len() == shapes[k].len(), || "einsum labels do not match rank".into())?;
+        check(labels[k].len() == shapes[k].len(), || {
+            "einsum labels do not match rank".into()
+        })?;
     }
     let mut order: Vec<u8> = Vec::new();
     for label in labels.iter().flat_map(|l| l.iter().copied()) {
@@ -431,9 +486,10 @@ fn einsum(
             let mut hits = labels[t].iter().enumerate().filter(|&(_, &l)| l == label);
             if let Some((axis, _)) = hits.next() {
                 check(hits.next().is_none(), || "repeated einsum label".into())?;
-                check(len == 1 || shapes[t][axis] == len || shapes[t][axis] == 1, || {
-                    "einsum sizes disagree".into()
-                })?;
+                check(
+                    len == 1 || shapes[t][axis] == len || shapes[t][axis] == 1,
+                    || "einsum sizes disagree".into(),
+                )?;
                 if shapes[t][axis] != 1 {
                     len = shapes[t][axis];
                     step[t] = strides[t][axis];
@@ -444,7 +500,9 @@ fn einsum(
         if len == 1 {
             continue;
         }
-        check(present[0] || present[1], || "einsum output axis has no source".into())?;
+        check(present[0] || present[1], || {
+            "einsum output axis has no source".into()
+        })?;
         let target = match present {
             [true, true, true] => &mut batch,
             [true, false, true] => &mut m,
@@ -452,17 +510,35 @@ fn einsum(
             _ => &mut k,
         };
         target.shape.push(len);
-        for t in 0..3 {
-            target.strides[t].push(step[t]);
+        for (strides, &stride) in target.strides.iter_mut().zip(&step) {
+            strides.push(stride);
         }
     }
     let (batch, m, n, k) = (batch.group(), m.group(), n.group(), k.group());
     let swapped = n.len < m.len;
     let (rows, cols) = if swapped { (&n, &m) } else { (&m, &n) };
-    let pick = |group: &Group, from_a: bool| if from_a { group.a.clone() } else { group.b.clone() };
-    let lhs_tables = [pick(&batch, !swapped), pick(rows, !swapped), pick(&k, !swapped)];
-    let rhs_tables = [pick(&batch, swapped), pick(&k, swapped), pick(cols, swapped)];
-    let (lhs_data, rhs_data) = if swapped { (data[1], data[0]) } else { (data[0], data[1]) };
+    let pick = |group: &Group, from_a: bool| {
+        if from_a {
+            group.a.clone()
+        } else {
+            group.b.clone()
+        }
+    };
+    let lhs_tables = [
+        pick(&batch, !swapped),
+        pick(rows, !swapped),
+        pick(&k, !swapped),
+    ];
+    let rhs_tables = [
+        pick(&batch, swapped),
+        pick(&k, swapped),
+        pick(cols, swapped),
+    ];
+    let (lhs_data, rhs_data) = if swapped {
+        (data[1], data[0])
+    } else {
+        (data[0], data[1])
+    };
     let out_tables = [batch.c.as_slice(), rows.c.as_slice(), cols.c.as_slice()];
     Ok(EinSum {
         shape: sdrmm_dsp::vector::GemmShape {
@@ -486,13 +562,29 @@ fn conv(spec: &ConvSpec, ins: &[Vec<usize>], out: &[usize]) -> Result<Conv, NetE
     let spatial = weights.len().checked_sub(2).filter(|s| (1..=2).contains(s));
     let spatial = spatial.ok_or_else(|| unsupported("conv kernel rank"))?;
     let lead = usize::from(spec.batched);
-    check(x.len() == lead + 1 + spatial && out.len() == x.len(), || "conv input rank".into())?;
-    check(!spec.batched || (x[0] == 1 && out[0] == 1), || "conv batch above one".into())?;
-    for list in [&spec.strides, &spec.dilations, &spec.pads_before, &spec.pads_after] {
+    check(
+        x.len() == lead + 1 + spatial && out.len() == x.len(),
+        || "conv input rank".into(),
+    )?;
+    check(!spec.batched || (x[0] == 1 && out[0] == 1), || {
+        "conv batch above one".into()
+    })?;
+    for list in [
+        &spec.strides,
+        &spec.dilations,
+        &spec.pads_before,
+        &spec.pads_after,
+    ] {
         check(list.len() == spatial, || "conv geometry rank".into())?;
     }
-    let channel_axis = if spec.channels_last { x.len() - 1 } else { lead };
-    let space: Vec<usize> = (0..x.len()).filter(|&a| a >= lead && a != channel_axis).collect();
+    let channel_axis = if spec.channels_last {
+        x.len() - 1
+    } else {
+        lead
+    };
+    let space: Vec<usize> = (0..x.len())
+        .filter(|&a| a >= lead && a != channel_axis)
+        .collect();
     let group = spec.group;
     let in_channels = x[channel_axis];
     let out_channels = weights[0];
@@ -500,11 +592,12 @@ fn conv(spec: &ConvSpec, ins: &[Vec<usize>], out: &[usize]) -> Result<Conv, NetE
         group > 0 && in_channels == weights[1] * group && out_channels.is_multiple_of(group),
         || "conv channels".into(),
     )?;
-    check(out[channel_axis] == out_channels, || "conv output channels".into())?;
-    check(
-        volume(bias) == out_channels || volume(bias) <= 1,
-        || "conv bias".into(),
-    )?;
+    check(out[channel_axis] == out_channels, || {
+        "conv output channels".into()
+    })?;
+    check(volume(bias) == out_channels || volume(bias) <= 1, || {
+        "conv bias".into()
+    })?;
     let (xs, os) = (contiguous(x), contiguous(out));
     let pad = spatial_pad(spatial);
     let mut conv = Conv {
@@ -527,7 +620,9 @@ fn conv(spec: &ConvSpec, ins: &[Vec<usize>], out: &[usize]) -> Result<Conv, NetE
         let d = pad + i;
         let kernel = weights[2 + i];
         let (stride, dilation) = (spec.strides[i], spec.dilations[i]);
-        check(stride > 0 && dilation > 0 && kernel > 0, || "conv geometry".into())?;
+        check(stride > 0 && dilation > 0 && kernel > 0, || {
+            "conv geometry".into()
+        })?;
         let padded = x[axis] + spec.pads_before[i] + spec.pads_after[i];
         let reach = dilation * (kernel - 1) + 1;
         let expected = padded.checked_sub(reach).map(|room| room / stride + 1);
@@ -568,8 +663,12 @@ fn gru(
     let [x, w, r, bias, h0] = [&ins[0], &ins[1], &ins[2], &ins[3], &ins[4]];
     check(x.len() == 3 && hidden > 0, || "gru input rank".into())?;
     let (batch, steps, input) = (x[0], x[1], x[2]);
-    check(w.as_slice() == [3 * hidden, input], || "gru input weights".into())?;
-    check(r.as_slice() == [3 * hidden, hidden], || "gru recurrent weights".into())?;
+    check(w.as_slice() == [3 * hidden, input], || {
+        "gru input weights".into()
+    })?;
+    check(r.as_slice() == [3 * hidden, hidden], || {
+        "gru recurrent weights".into()
+    })?;
     check(volume(bias) == 6 * hidden, || "gru bias".into())?;
     check(volume(h0) == batch * hidden, || "gru initial state".into())?;
     same(&outs[0], &[batch, steps, hidden])?;
@@ -597,21 +696,43 @@ fn split(shape: &[usize], axis: usize) -> Result<Split, NetError> {
     })
 }
 
-fn gather(input: &[usize], axis: usize, indices: &[usize], out: &[usize]) -> Result<Kernel, NetError> {
+fn gather(
+    input: &[usize],
+    axis: usize,
+    indices: &[usize],
+    out: &[usize],
+) -> Result<Kernel, NetError> {
     let split = split(input, axis)?;
-    check(indices.iter().all(|&i| i < split.len), || "gather index out of range".into())?;
-    check(volume(out) == split.outer * indices.len() * split.inner, || "gather output size".into())?;
+    check(indices.iter().all(|&i| i < split.len), || {
+        "gather index out of range".into()
+    })?;
+    check(
+        volume(out) == split.outer * indices.len() * split.inner,
+        || "gather output size".into(),
+    )?;
     Ok(Kernel::Gather(split, indices.to_vec()))
 }
 
-fn pad_reflect(input: &[usize], before: &[usize], after: &[usize], out: &[usize]) -> Result<Vec<usize>, NetError> {
-    check(before.len() == input.len() && after.len() == input.len(), || "pad rank".into())?;
+fn pad_reflect(
+    input: &[usize],
+    before: &[usize],
+    after: &[usize],
+    out: &[usize],
+) -> Result<Vec<usize>, NetError> {
+    check(
+        before.len() == input.len() && after.len() == input.len(),
+        || "pad rank".into(),
+    )?;
     let strides = contiguous(input);
     let mut maps = Vec::with_capacity(input.len());
     for axis in 0..input.len() {
         let len = input[axis];
-        check(before[axis] < len && after[axis] < len, || "reflect pad wider than input".into())?;
-        check(out[axis] == len + before[axis] + after[axis], || "pad output size".into())?;
+        check(before[axis] < len && after[axis] < len, || {
+            "reflect pad wider than input".into()
+        })?;
+        check(out[axis] == len + before[axis] + after[axis], || {
+            "pad output size".into()
+        })?;
         let map: Vec<usize> = (0..out[axis])
             .map(|j| {
                 let at = j.abs_diff(before[axis]);

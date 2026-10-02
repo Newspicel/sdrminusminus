@@ -44,8 +44,21 @@ fn run(graph: &Graph, input: &[f32]) -> Vec<f32> {
 
 #[test]
 fn half_precision_round_trips_representable_values() {
-    for value in [0.0f32, -0.0, 1.0, -2.5, 65504.0, 6.1035156e-5, 5.9604645e-8, 0.333_251_95] {
-        assert_eq!(f16_to_f32(f32_to_f16(value)).to_bits(), value.to_bits(), "{value}");
+    for value in [
+        0.0f32,
+        -0.0,
+        1.0,
+        -2.5,
+        65504.0,
+        6.1035156e-5,
+        5.9604645e-8,
+        0.333_251_95,
+    ] {
+        assert_eq!(
+            f16_to_f32(f32_to_f16(value)).to_bits(),
+            value.to_bits(),
+            "{value}"
+        );
     }
     assert_eq!(f32_to_f16(1.0e6), 0x7c00);
     assert!(f16_to_f32(f32_to_f16(f32::NAN)).is_nan());
@@ -89,14 +102,24 @@ fn a_graph_survives_encoding() {
 fn a_cut_file_is_refused() {
     let g = graph(vec![value(&[1])], vec![], vec![0], vec![0]);
     let bytes = g.encode();
-    assert!(matches!(Graph::decode(&bytes[..bytes.len() - 1]), Err(NetError::Format(_))));
-    assert!(matches!(Graph::decode(b"garbage!"), Err(NetError::Format(_))));
+    assert!(matches!(
+        Graph::decode(&bytes[..bytes.len() - 1]),
+        Err(NetError::Format(_))
+    ));
+    assert!(matches!(
+        Graph::decode(b"garbage!"),
+        Err(NetError::Format(_))
+    ));
 }
 
 #[test]
 fn broadcasting_matches_numpy() {
     let g = graph(
-        vec![value(&[2, 3]), weights(&[1, 3], &[10.0, 20.0, 30.0]), value(&[2, 3])],
+        vec![
+            value(&[2, 3]),
+            weights(&[1, 3], &[10.0, 20.0, 30.0]),
+            value(&[2, 3]),
+        ],
         vec![node(Op::Binary(Binary::Sub), &[0, 1], &[2])],
         vec![0],
         vec![2],
@@ -110,10 +133,23 @@ fn broadcasting_matches_numpy() {
 #[test]
 fn transpose_slice_and_concat_move_the_right_numbers() {
     let g = graph(
-        vec![value(&[2, 3]), value(&[3, 2]), value(&[1, 2]), value(&[4, 2])],
+        vec![
+            value(&[2, 3]),
+            value(&[3, 2]),
+            value(&[1, 2]),
+            value(&[4, 2]),
+        ],
         vec![
             node(Op::Transpose { perm: vec![1, 0] }, &[0], &[1]),
-            node(Op::Slice { axis: 0, start: 2, end: 3 }, &[1], &[2]),
+            node(
+                Op::Slice {
+                    axis: 0,
+                    start: 2,
+                    end: 3,
+                },
+                &[1],
+                &[2],
+            ),
             node(Op::Concat { axis: 0 }, &[1, 2], &[3]),
         ],
         vec![0],
@@ -172,7 +208,11 @@ fn einsum_covers_every_loop_order() {
         assert_eq!(run(&g, &[1.0, 2.0, 3.0, 4.0]), expected);
     }
     let g = graph(
-        vec![value(&[2, 3]), weights(&[2, 2], &[1.0, 2.0, 3.0, 4.0]), value(&[2, 3])],
+        vec![
+            value(&[2, 3]),
+            weights(&[2, 2], &[1.0, 2.0, 3.0, 4.0]),
+            value(&[2, 3]),
+        ],
         vec![node(
             Op::EinSum {
                 a: b"km".to_vec(),
@@ -226,7 +266,10 @@ fn conv_pads_strides_and_groups() {
 fn gru_runs_both_ways_from_its_initial_state() {
     let hidden = 1;
     let zeros = [0.0; 3];
-    for (backward, expected) in [(false, [0.5f32.tanh() * 0.5]), (true, [0.5f32.tanh() * 0.5])] {
+    for (backward, expected) in [
+        (false, [0.5f32.tanh() * 0.5]),
+        (true, [0.5f32.tanh() * 0.5]),
+    ] {
         let g = graph(
             vec![
                 value(&[1, 1, 1]),
@@ -237,7 +280,11 @@ fn gru_runs_both_ways_from_its_initial_state() {
                 value(&[1, 1, 1]),
                 value(&[1, 1, 1]),
             ],
-            vec![node(Op::Gru { hidden, backward }, &[0, 1, 2, 3, 4], &[5, 6])],
+            vec![node(
+                Op::Gru { hidden, backward },
+                &[0, 1, 2, 3, 4],
+                &[5, 6],
+            )],
             vec![0],
             vec![5],
         );
@@ -290,7 +337,15 @@ fn inconsistent_shapes_are_refused_before_running() {
     assert!(matches!(Net::from_graph(&g), Err(NetError::Unsupported(_))));
     let g = graph(
         vec![value(&[4]), value(&[2])],
-        vec![node(Op::Slice { axis: 0, start: 3, end: 5 }, &[0], &[1])],
+        vec![node(
+            Op::Slice {
+                axis: 0,
+                start: 3,
+                end: 5,
+            },
+            &[0],
+            &[1],
+        )],
         vec![0],
         vec![1],
     );

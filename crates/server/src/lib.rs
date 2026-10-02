@@ -31,6 +31,7 @@ mod calls;
 pub(crate) mod cps;
 mod decoded;
 mod decoderlog;
+pub mod denoise_models;
 pub(crate) mod df_fusion;
 pub mod diagnostics;
 pub mod doctor;
@@ -116,6 +117,7 @@ pub(crate) struct AppState {
     pub(crate) dev_cors: bool,
     pub(crate) data_dir: Option<PathBuf>,
     pub(crate) remote: Arc<remote::RemoteHub>,
+    pub(crate) denoise: Arc<denoise_models::Downloads>,
     started: std::time::Instant,
 }
 
@@ -157,6 +159,7 @@ impl AppState {
             server_name: net::host_label().into(),
             dev_cors: false,
             data_dir: None,
+            denoise: Arc::default(),
             started: std::time::Instant::now(),
         }
     }
@@ -483,6 +486,12 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         .as_deref()
         .and_then(Path::parent)
         .map(Path::to_path_buf);
+    if let Some(dir) = &state.data_dir {
+        state
+            .engine
+            .denoise_models()
+            .set_dir(dir.join("denoise-models"));
+    }
     let served = config
         .tls
         .as_ref()

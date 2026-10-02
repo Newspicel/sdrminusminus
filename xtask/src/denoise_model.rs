@@ -4,9 +4,11 @@ use anyhow::{Context, Result, bail, ensure};
 use sdrmm_channels::neural::{
     Binary, ConvSpec, Graph, Net, Node, Op, Session, Unary, Value, Weights, f16_to_f32, f32_to_f16,
 };
+use sdrmm_server::denoise_models::{MODELS_PREFIX, artifact, file_name};
 use sdrmm_wire::DenoiseModel;
 use sha2::{Digest, Sha256};
 use tract_onnx::prelude::*;
+use tract_onnx::tract_core::internal::DimLike as _;
 use tract_onnx::tract_core::ops::{
     array::{Gather, Pad, PadMode, Slice, TypedConcat},
     binary::TypedBinOp,
@@ -19,10 +21,9 @@ use tract_onnx::tract_core::ops::{
     nn::{DataFormat, Reduce, Reducer, RmsNorm},
     source::TypedSource,
 };
-use tract_onnx::tract_core::internal::DimLike as _;
 
 const SOURCE_BASE: &str = "https://huggingface.co/Ceva-IP/DPDFNet/resolve/main/onnx";
-const SOURCES: [(DenoiseModel, &str); 6] = [
+const SOURCES: [(DenoiseModel, &str); 8] = [
     (
         DenoiseModel::Baseline,
         "371d26182aff0e1e0d31354e24c81f79cd57458f5a7dd003fc10a7ebf64255e0",
@@ -47,6 +48,14 @@ const SOURCES: [(DenoiseModel, &str); 6] = [
         DenoiseModel::Dpdfnet8Narrow,
         "c061bcc56b803fa2fa97d448a45db6d966f7d17aff1304e464455d748745ea62",
     ),
+    (
+        DenoiseModel::Dpdfnet2Full,
+        "7f0575a5cec0ba4ffd8f8bd657e06d007e4ccdd955d76faab922b9d3291dc14b",
+    ),
+    (
+        DenoiseModel::Dpdfnet8Full,
+        "7b3afbb260a08fe9af3d16e3bda992971be1e7e951d1dee7c2d235f5c43f5631",
+    ),
 ];
 const FIXTURE: (DenoiseModel, &str) = (
     DenoiseModel::Dpdfnet2,
@@ -59,6 +68,7 @@ const PARITY_TOLERANCE: f32 = 1e-2;
 pub(crate) fn run(root: &Path) -> Result<()> {
     let scratch = root.join("target/denoise-model");
     fs::create_dir_all(&scratch)?;
+    let mut stale = Vec::new();
     for (model, sha256) in SOURCES {
         let onnx = scratch.join(format!("{}.onnx", model.name()));
         download(model, sha256, &onnx)?;
@@ -70,8 +80,17 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         let bytes = graph.encode();
         let net = Arc::new(Net::load(&bytes)?);
         let report = parity(typed, &net)?;
-        let out = scratch.join(format!("{}.sdrmmnn", model.name()));
+        let out = scratch.join(file_name(model));
         fs::write(&out, &bytes)?;
+        let digest = hex(&Sha256::digest(&bytes));
+        let listed = artifact(model);
+        if listed.sha256 != digest || listed.bytes != bytes.len() as u64 {
+            stale.push(format!(
+                "{}: {} bytes, sha256 {digest}",
+                model.name(),
+                bytes.len()
+            ));
+        }
         if model == FIXTURE.0 {
             fs::write(root.join(FIXTURE.1), &bytes)?;
         }
@@ -79,12 +98,21 @@ pub(crate) fn run(root: &Path) -> Result<()> {
             "{:<16} {:>9} bytes  sha256 {}  error {:.1e}  {:.0} us/frame (tract {:.0})",
             model.name(),
             bytes.len(),
-            hex(&Sha256::digest(&bytes)),
+            digest,
             report.error,
             report.ours_us,
             report.tract_us,
         );
     }
+    ensure!(
+        stale.is_empty(),
+        "update the catalog in crates/server/src/denoise_models.rs:\n{}",
+        stale.join("\n")
+    );
+    println!(
+        "upload with: scripts/r2-upload.sh {MODELS_PREFIX} {}/*.sdrmmnn",
+        scratch.display()
+    );
     Ok(())
 }
 
@@ -221,10 +249,10 @@ impl Converter<'_> {
         let all = node.inputs.clone();
         let first = || vec![all[0]];
         if let Some(bin) = node.op_as::<TypedBinOp>() {
-            return Ok((Op::Binary(binary(&bin.0.name())?), all.clone()));
+            return Ok((Op::Binary(binary(bin.0.name())?), all.clone()));
         }
         if let Some(unary_op) = node.op_as::<ElementWiseOp>() {
-            return Ok((Op::Unary(unary(&unary_op.0.name())?), first()));
+            return Ok((Op::Unary(unary(unary_op.0.name())?), first()));
         }
         if let Some(axis) = node.op_as::<AxisOp>() {
             let op = match axis {
@@ -247,7 +275,11 @@ impl Converter<'_> {
             return Ok((Op::Concat { axis: concat.axis }, all.clone()));
         }
         if let Some(reduce) = node.op_as::<Reduce>() {
-            ensure!(matches!(reduce.reducer, Reducer::Sum), "reducer {:?}", reduce.reducer);
+            ensure!(
+                matches!(reduce.reducer, Reducer::Sum),
+                "reducer {:?}",
+                reduce.reducer
+            );
             let axes = reduce.axes.to_vec();
             return Ok((Op::SumReduce { axes }, first()));
         }
@@ -267,7 +299,13 @@ impl Converter<'_> {
         }
         if let Some(norm) = node.op_as::<RmsNorm>() {
             let eps = norm.eps.cast_to_scalar::<f32>()?;
-            return Ok((Op::RmsNorm { axis: norm.axis, eps }, first()));
+            return Ok((
+                Op::RmsNorm {
+                    axis: norm.axis,
+                    eps,
+                },
+                first(),
+            ));
         }
         if let Some(gather) = node.op_as::<Gather>() {
             let indices = self.indices(all[1], self.shape(all[0])?[gather.axis])?;
@@ -278,7 +316,11 @@ impl Converter<'_> {
             return Ok((op, first()));
         }
         if let Some(pad) = node.op_as::<Pad>() {
-            ensure!(matches!(pad.mode, PadMode::Reflect), "pad mode {:?}", pad.mode);
+            ensure!(
+                matches!(pad.mode, PadMode::Reflect),
+                "pad mode {:?}",
+                pad.mode
+            );
             let op = Op::PadReflect {
                 before: pad.pads.iter().map(|p| p.0).collect(),
                 after: pad.pads.iter().map(|p| p.1).collect(),
@@ -289,7 +331,9 @@ impl Converter<'_> {
     }
 
     fn indices(&self, outlet: OutletId, len: usize) -> Result<Vec<usize>> {
-        let tensor = self.constant(outlet).context("gather indices are not constant")?;
+        let tensor = self
+            .constant(outlet)
+            .context("gather indices are not constant")?;
         let tensor = tensor.cast_to::<i64>()?;
         tensor
             .try_as_plain_ram()?
@@ -312,8 +356,8 @@ fn weights(tensor: &Tensor) -> Result<Weights> {
     })
 }
 
-fn binary(name: &str) -> Result<Binary> {
-    Ok(match name {
+fn binary(name: impl AsRef<str>) -> Result<Binary> {
+    Ok(match name.as_ref() {
         "Add" => Binary::Add,
         "Sub" => Binary::Sub,
         "Mul" => Binary::Mul,
@@ -323,8 +367,8 @@ fn binary(name: &str) -> Result<Binary> {
     })
 }
 
-fn unary(name: &str) -> Result<Unary> {
-    Ok(match name {
+fn unary(name: impl AsRef<str>) -> Result<Unary> {
+    Ok(match name.as_ref() {
         "Sqrt" => Unary::Sqrt,
         "Rsqrt" => Unary::Rsqrt,
         "Square" => Unary::Square,
@@ -357,7 +401,10 @@ fn einsum_op(einsum: &EinSum) -> Result<Op> {
 
 fn conv_spec(conv: &Conv) -> Result<ConvSpec> {
     ensure!(conv.q_params.is_none(), "quantized conv");
-    ensure!(matches!(conv.kernel_fmt, KernelFormat::OIHW), "kernel format");
+    ensure!(
+        matches!(conv.kernel_fmt, KernelFormat::OIHW),
+        "kernel format"
+    );
     let pool = &conv.pool_spec;
     let rank = pool.kernel_shape.len();
     let PaddingSpec::Explicit(before, after) = &pool.padding else {
@@ -393,7 +440,12 @@ fn parity(mut model: TypedModel, net: &Arc<Net>) -> Result<Parity> {
         }
     }
     round_weights(&mut model)?;
-    let spec_shape = model.outlet_fact(model.input_outlets()?[0])?.shape.as_concrete().context("spec")?.to_vec();
+    let spec_shape = model
+        .outlet_fact(model.input_outlets()?[0])?
+        .shape
+        .as_concrete()
+        .context("spec")?
+        .to_vec();
     let plan = model.into_optimized()?.into_runnable()?;
     let mut runner = plan.spawn()?;
     let mut session = Session::new(Arc::clone(net));
@@ -420,7 +472,12 @@ fn parity(mut model: TypedModel, net: &Arc<Net>) -> Result<Parity> {
         session.run();
         ours_time += started.elapsed().as_secs_f64();
         ours_state.copy_from_slice(session.output(1));
-        for (a, b) in theirs.try_as_plain_ram()?.as_slice::<f32>()?.iter().zip(session.output(0)) {
+        for (a, b) in theirs
+            .try_as_plain_ram()?
+            .as_slice::<f32>()?
+            .iter()
+            .zip(session.output(0))
+        {
             worst = worst.max((a - b).abs());
             peak = peak.max(a.abs());
         }
@@ -492,7 +549,10 @@ mod tests {
         session.input_mut(0).fill(1.0);
         session.run();
         for (got, want) in session.output(0).iter().zip(&values) {
-            assert!((got - (want + 1.0)).abs() <= (want + 1.0) / 1024.0, "{got} vs {want}");
+            assert!(
+                (got - (want + 1.0)).abs() <= (want + 1.0) / 1024.0,
+                "{got} vs {want}"
+            );
         }
         Ok(())
     }

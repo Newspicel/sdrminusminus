@@ -612,6 +612,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/denoise-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_denoise_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/denoise-models/{model}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["download_denoise_model"];
+        delete: operations["delete_denoise_model"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices": {
         parameters: {
             query?: never;
@@ -3948,10 +3980,37 @@ export interface components {
             deleted: number;
         };
         /** @enum {string} */
-        DenoiseMode: "spectral" | "neural";
+        DenoiseMode: "spectral" | "rnnoise" | "neural";
+        /** @enum {string} */
+        DenoiseModel: "baseline" | "dpdfnet2" | "dpdfnet4" | "dpdfnet8" | "dpdfnet2_8khz" | "dpdfnet8_8khz" | "dpdfnet2_48khz_hr" | "dpdfnet8_48khz_hr";
+        DenoiseModelsResponse: {
+            models: components["schemas"]["DenoiseModelStatus"][];
+        };
+        DenoiseModelState: {
+            /** @enum {string} */
+            state: "missing";
+        } | {
+            /** Format: int64 */
+            received: number;
+            /** @enum {string} */
+            state: "downloading";
+        } | {
+            /** @enum {string} */
+            state: "ready";
+        } | {
+            error: string;
+            /** @enum {string} */
+            state: "failed";
+        };
+        DenoiseModelStatus: components["schemas"]["DenoiseModelState"] & {
+            /** Format: int64 */
+            bytes: number;
+            model: components["schemas"]["DenoiseModel"];
+        };
         DenoiseSettings: {
             enabled?: boolean;
             mode?: components["schemas"]["DenoiseMode"];
+            model?: components["schemas"]["DenoiseModel"];
             /** Format: float */
             strength?: number;
         };
@@ -9565,6 +9624,104 @@ export interface operations {
             };
             /** @description Unknown format or malformed filter */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_denoise_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every DPDFNet model and whether it is here */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DenoiseModelsResponse"];
+                };
+            };
+        };
+    };
+    download_denoise_model: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Model name */
+                model: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Download started */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such model */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Already downloading */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No data directory to keep models in */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_denoise_model: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Model name */
+                model: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Model removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such model */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

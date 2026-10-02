@@ -93,7 +93,10 @@ impl DenoiseNets for FixtureNets {
     fn net(&self, model: DenoiseModel) -> Result<Arc<Net>, NeuralDenoiseError> {
         match model {
             DenoiseModel::Dpdfnet2 => Ok(fixture_net()?),
-            other => Err(NeuralDenoiseError(format!("{} is not downloaded", other.name()))),
+            other => Err(NeuralDenoiseError(format!(
+                "{} is not downloaded",
+                other.name()
+            ))),
         }
     }
 }
@@ -203,7 +206,9 @@ impl NeuralDenoiser {
     }
 
     pub fn reset(&mut self) {
-        self.session.input_mut(1).copy_from_slice(&self.initial_state);
+        self.session
+            .input_mut(1)
+            .copy_from_slice(&self.initial_state);
         self.decimator.reset();
         self.interpolator.reset();
         self.frame_in.clear();
@@ -216,13 +221,21 @@ impl NeuralDenoiser {
     }
 
     pub fn process(&mut self, pcm: &mut [f32]) -> Result<(), NeuralDenoiseError> {
-        self.decimator.process(pcm, &mut self.narrow);
-        self.frame_in.extend_from_slice(&self.narrow);
+        if self.factor == 1 {
+            self.frame_in.extend_from_slice(pcm);
+        } else {
+            self.decimator.process(pcm, &mut self.narrow);
+            self.frame_in.extend_from_slice(&self.narrow);
+        }
         let mut consumed = 0;
         while self.frame_in.len() - consumed >= self.window_len {
             self.run_frame(consumed)?;
-            self.interpolator.process(&self.frame_out, &mut self.wide);
-            self.ready.extend(&self.wide);
+            if self.factor == 1 {
+                self.ready.extend(&self.frame_out);
+            } else {
+                self.interpolator.process(&self.frame_out, &mut self.wide);
+                self.ready.extend(&self.wide);
+            }
             consumed += self.hop;
         }
         self.frame_in.drain(..consumed);
@@ -350,7 +363,8 @@ mod tests {
 
     #[test]
     fn it_returns_one_sample_for_every_sample_it_is_given() {
-        let mut denoiser = NeuralDenoiser::new(fixture_net().expect("model loads"), 1.0).expect("denoiser builds");
+        let mut denoiser =
+            NeuralDenoiser::new(fixture_net().expect("model loads"), 1.0).expect("denoiser builds");
         for len in [1usize, 159, 480, 997, 4_800] {
             let mut block = noise(len, 0.1, 7);
             denoiser.process(&mut block).expect("inference runs");
@@ -361,7 +375,11 @@ mod tests {
     #[test]
     fn it_quietens_noise_with_nobody_talking() {
         let input = noise(96_000, 0.1, 11);
-        let output = run(&mut NeuralDenoiser::new(fixture_net().expect("model loads"), 1.0).expect("denoiser builds"), &input);
+        let output = run(
+            &mut NeuralDenoiser::new(fixture_net().expect("model loads"), 1.0)
+                .expect("denoiser builds"),
+            &input,
+        );
         let before = rms(&input[48_000..]);
         let after = rms(&output[48_000..]);
         assert!(
@@ -375,7 +393,11 @@ mod tests {
         let voice = vowel(144_000);
         let hiss = noise(voice.len(), 0.05, 3);
         let noisy: Vec<f32> = voice.iter().zip(&hiss).map(|(v, n)| v + n).collect();
-        let output = run(&mut NeuralDenoiser::new(fixture_net().expect("model loads"), 1.0).expect("denoiser builds"), &noisy);
+        let output = run(
+            &mut NeuralDenoiser::new(fixture_net().expect("model loads"), 1.0)
+                .expect("denoiser builds"),
+            &noisy,
+        );
         let kept = rms(&output[48_000..]);
         let voiced = rms(&voice[48_000..]);
         assert!(kept > voiced * 0.3, "voice fell from {voiced} to {kept}");
@@ -384,7 +406,8 @@ mod tests {
     #[test]
     fn zero_strength_hands_back_the_input_delayed() {
         let input = vowel(48_000);
-        let mut denoiser = NeuralDenoiser::new(fixture_net().expect("model loads"), 0.0).expect("denoiser builds");
+        let mut denoiser =
+            NeuralDenoiser::new(fixture_net().expect("model loads"), 0.0).expect("denoiser builds");
         let output = run(&mut denoiser, &input);
         let settled = 24_000;
         let best = (0..6_000)

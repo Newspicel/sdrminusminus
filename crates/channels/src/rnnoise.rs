@@ -75,15 +75,19 @@ mod tests {
     use super::*;
     use crate::testutil::rms;
 
-    fn noise(len: usize, amplitude: f32) -> Vec<f32> {
+    fn hiss(len: usize, amplitude: f32) -> Vec<f32> {
         let mut state = 0x2545_f491_4f6c_dd1du64;
-        (0..len)
+        let white: Vec<f32> = (0..len + 7)
             .map(|_| {
                 state ^= state << 13;
                 state ^= state >> 7;
                 state ^= state << 17;
                 amplitude * ((state >> 40) as f32 / (1u64 << 24) as f32 * 2.0 - 1.0)
             })
+            .collect();
+        white
+            .windows(8)
+            .map(|w| w.iter().sum::<f32>() / 8.0)
             .collect()
     }
 
@@ -105,10 +109,13 @@ mod tests {
 
     #[test]
     fn it_quietens_noise_with_nobody_talking() {
-        let input = noise(96_000, 0.1);
+        let input = hiss(96_000, 0.1);
         let output = run(&mut RnnoiseDenoiser::new(1.0), &input);
         let (before, after) = (rms(&input[48_000..]), rms(&output[48_000..]));
-        assert!(after < before * 0.3, "noise only fell from {before} to {after}");
+        assert!(
+            after < before * 0.1,
+            "noise only fell from {before} to {after}"
+        );
     }
 
     #[test]
@@ -136,6 +143,9 @@ mod tests {
             .zip(&input[9_600..])
             .map(|(a, b)| a - b)
             .collect::<Vec<_>>());
-        assert!(error < 0.5 * rms(&input), "dry and wet are out of step: {error}");
+        assert!(
+            error < 0.5 * rms(&input),
+            "dry and wet are out of step: {error}"
+        );
     }
 }

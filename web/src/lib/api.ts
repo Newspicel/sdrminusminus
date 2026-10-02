@@ -32,6 +32,8 @@ import type {
   CreateBookmarkRequest,
   DecoderLogFilter,
   DecoderLogResponse,
+  DenoiseModel,
+  DenoiseModelsResponse,
   DeviceSettings,
   DevicesResponse,
   DfFusionState,
@@ -139,6 +141,9 @@ export const TOOL_RUN_KEY = ["post", "/api/tools/run"] as const;
 export const PHONES_KEY = ["get", "/api/phones"] as const;
 export const FUSION_KEY = ["get", "/api/fusion/{node}"] as const;
 export const SURVEY_KEY = ["get", "/api/survey/{node}"] as const;
+export const DENOISE_MODELS_KEY = ["get", "/api/denoise-models"] as const;
+
+const DENOISE_POLL_MS = 500;
 
 export function stateQuery() {
   return queryOptions({
@@ -359,6 +364,27 @@ export async function pairRemote(): Promise<RemoteStatus> {
 
 export async function unpairRemote(): Promise<void> {
   unwrap(await client.DELETE("/api/remote", {}));
+}
+
+export function denoiseModelsQuery(enabled: boolean) {
+  return queryOptions({
+    queryKey: DENOISE_MODELS_KEY,
+    queryFn: async (): Promise<DenoiseModelsResponse> =>
+      unwrap(await client.GET("/api/denoise-models")),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.models.some((model) => model.state === "downloading")
+        ? DENOISE_POLL_MS
+        : false,
+  });
+}
+
+export async function downloadDenoiseModel(model: DenoiseModel): Promise<void> {
+  unwrap(await client.POST("/api/denoise-models/{model}", { params: { path: { model } } }));
+}
+
+export async function deleteDenoiseModel(model: DenoiseModel): Promise<void> {
+  unwrap(await client.DELETE("/api/denoise-models/{model}", { params: { path: { model } } }));
 }
 
 export function savedRadiosQuery() {

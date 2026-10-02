@@ -2,7 +2,9 @@ use super::*;
 
 fn values(len: usize, seed: u32) -> Vec<f32> {
     (0..len)
-        .map(|i| ((i as u32).wrapping_mul(2_654_435_761).wrapping_add(seed) % 1_000) as f32 / 500.0 - 1.0)
+        .map(|i| {
+            ((i as u32).wrapping_mul(2_654_435_761).wrapping_add(seed) % 1_000) as f32 / 500.0 - 1.0
+        })
         .collect()
 }
 
@@ -41,14 +43,27 @@ fn axpy_adds_a_scaled_vector() {
 #[test]
 fn gemm_matches_the_textbook_product_for_ragged_shapes() {
     for vector in kernels() {
-        for (rows, depth, cols) in [(1, 1, 1), (4, 3, 16), (5, 7, 33), (9, 64, 48), (2, 5, 3), (1, 64, 192), (3, 9, 100)] {
+        for (rows, depth, cols) in [
+            (1, 1, 1),
+            (4, 3, 16),
+            (5, 7, 33),
+            (9, 64, 48),
+            (2, 5, 3),
+            (1, 64, 192),
+            (3, 9, 100),
+        ] {
             let (lhs, rhs) = (values(rows * depth, 5), values(depth * cols, 6));
             let mut out = vec![f32::NAN; rows * cols];
             vector.gemm(GemmShape { rows, depth, cols }, &lhs, &rhs, &mut out);
             for r in 0..rows {
                 for c in 0..cols {
-                    let want: f32 = (0..depth).map(|k| lhs[r * depth + k] * rhs[k * cols + c]).sum();
-                    assert!((out[r * cols + c] - want).abs() < 1e-4, "{rows}x{depth}x{cols} at {r},{c}");
+                    let want: f32 = (0..depth)
+                        .map(|k| lhs[r * depth + k] * rhs[k * cols + c])
+                        .sum();
+                    assert!(
+                        (out[r * cols + c] - want).abs() < 1e-4,
+                        "{rows}x{depth}x{cols} at {r},{c}"
+                    );
                 }
             }
         }
@@ -58,7 +73,16 @@ fn gemm_matches_the_textbook_product_for_ragged_shapes() {
 #[test]
 fn gemm_leaves_short_buffers_alone() {
     let mut out = vec![7.0; 4];
-    Vector::detect().gemm(GemmShape { rows: 2, depth: 2, cols: 2 }, &[1.0; 3], &[1.0; 4], &mut out);
+    Vector::detect().gemm(
+        GemmShape {
+            rows: 2,
+            depth: 2,
+            cols: 2,
+        },
+        &[1.0; 3],
+        &[1.0; 4],
+        &mut out,
+    );
     assert_eq!(out, [7.0; 4]);
 }
 
@@ -72,7 +96,10 @@ fn tanh_and_sigmoid_stay_within_float_rounding() {
         vector.sigmoid(&mut sigmoid);
         for ((&x, t), s) in inputs.iter().zip(tanh).zip(sigmoid) {
             assert!((t - x.tanh()).abs() < 2e-6, "tanh({x}) = {t}");
-            assert!((s - 1.0 / (1.0 + (-x).exp())).abs() < 2e-6, "sigmoid({x}) = {s}");
+            assert!(
+                (s - 1.0 / (1.0 + (-x).exp())).abs() < 2e-6,
+                "sigmoid({x}) = {s}"
+            );
         }
     }
 }
