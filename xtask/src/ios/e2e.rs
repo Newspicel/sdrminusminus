@@ -44,9 +44,17 @@ impl Drop for Server {
 
 impl Server {
     pub(super) fn start(root: &Path, target: &Path) -> Result<Self> {
+        let build = target.join("no-soapy");
         crate::run(
             "cargo",
-            &["build", "-p", "sdrmm", "--no-default-features"],
+            &[
+                "build",
+                "-p",
+                "sdrmm",
+                "--no-default-features",
+                "--target-dir",
+                &build.to_string_lossy(),
+            ],
             root,
         )?;
         let dir = target.join("ios/e2e");
@@ -61,7 +69,7 @@ impl Server {
         let errors = output.try_clone().context("clone the server log")?;
         let args = server_args(&bind, &dir);
         println!("$ sdrmm {}", args.join(" "));
-        let child = Command::new(target.join("debug/sdrmm"))
+        let child = Command::new(build.join("debug/sdrmm"))
             .args(&args)
             .current_dir(root)
             .stdin(Stdio::null())

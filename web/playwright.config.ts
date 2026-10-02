@@ -54,7 +54,7 @@ export default defineConfig({
   webServer: {
     command:
       PREPARE +
-      `cargo run -q -p sdrmm --no-default-features -- --bind 127.0.0.1:${PORT} ` +
+      `cargo run -q -p sdrmm --no-default-features --target-dir target/no-soapy -- --bind 127.0.0.1:${PORT} ` +
       `--db web/${SCRATCH}/e2e.db --recordings-dir web/${SCRATCH}/recordings` +
       (TLS ? " --tls-self-signed" : ""),
     cwd: "..",

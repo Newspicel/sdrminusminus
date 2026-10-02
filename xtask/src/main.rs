@@ -796,6 +796,7 @@ fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
 /// Tests, smoke runs and screenshots must not reach whatever SoapySDR a developer has
 /// installed, so they are pointed at a library that cannot exist and find none.
 const NO_SOAPY_RUNTIME: (&str, &str) = ("SDRMM_SOAPY_LIBRARY", "/nonexistent/libSoapySDR");
+const NO_SOAPY_TARGET: &str = "target/no-soapy";
 
 fn release_features() -> [String; 3] {
     [
@@ -1455,7 +1456,14 @@ fn smoke(root: &Path) -> Result<()> {
     )?;
     run(
         "cargo",
-        &["build", "-p", "sdrmm", "--no-default-features"],
+        &[
+            "build",
+            "-p",
+            "sdrmm",
+            "--no-default-features",
+            "--target-dir",
+            NO_SOAPY_TARGET,
+        ],
         root,
     )?;
     let scratch = root.join("web/.e2e-tmp");
