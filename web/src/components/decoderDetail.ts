@@ -23,6 +23,21 @@ import {
 import { DECT_CIPHER_LABELS } from "./eventFacts";
 import { formatHz } from "./format";
 import { SSTV_MODE_LABELS } from "./sstvModes";
+import {
+  aprsWeatherRows,
+  avhrrChannels,
+  celsius,
+  climbRate,
+  hectopascal,
+  LRPT_MODE_LABELS,
+  metres,
+  metresPerSecond,
+  percent,
+  SONDE_LABELS,
+  seconds,
+  WEFAX_IOC_VALUES,
+  WEFAX_LPM_VALUES,
+} from "./weatherFormat";
 
 export type DetailField = readonly [label: string, value: string];
 
@@ -156,6 +171,7 @@ const DETAIL: {
       ["Altitude", feet(p.altitude_ft)],
       ["Mic-E message", p.mic_e_message],
       ["Comment", p.comment?.trim()],
+      ...(p.weather == null ? [] : aprsWeatherRows(p.weather)),
     ]),
     body: monitorLine(p),
   }),
@@ -504,6 +520,60 @@ const DETAIL: {
   hfdl: dataLinkDetail,
   iridium: dataLinkDetail,
   dect: dectDetail,
+  apt: (p) => ({
+    fields: fields([
+      ["Channels", avhrrChannels(p)],
+      ["Lines received", String(p.lines)],
+      ["State", p.complete ? "complete" : "cut short"],
+      ["Took", seconds(p.duration_ms)],
+    ]),
+    body: null,
+  }),
+  lrpt: (p) => ({
+    fields: fields([
+      ["Mode", LRPT_MODE_LABELS[p.mode]],
+      ["Size", `${p.width} \u00d7 ${p.lines}`],
+      ["APIDs", p.apids.join(", ")],
+      ["Frames", String(p.frames)],
+      ["Frames repaired", String(p.frames_corrected)],
+      ["Frames failed", String(p.frames_failed)],
+      ["Packets lost", String(p.packets_lost)],
+      ["State", p.complete ? "complete" : "cut short"],
+      ["Took", seconds(p.duration_ms)],
+    ]),
+    body: null,
+  }),
+  wefax: (p) => ({
+    fields: fields([
+      ["IOC", String(WEFAX_IOC_VALUES[p.ioc])],
+      ["Speed", `${WEFAX_LPM_VALUES[p.lpm]} LPM`],
+      ["Size", `${p.width} \u00d7 ${p.lines}`],
+      ["State", p.complete ? "complete" : "cut short"],
+      ["Took", seconds(p.duration_ms)],
+    ]),
+    body: null,
+  }),
+  radiosonde: (f) => ({
+    fields: fields([
+      ["Serial", f.serial],
+      ["Type", SONDE_LABELS[f.sonde]],
+      ["Frame", f.frame == null ? undefined : String(f.frame)],
+      ["Time", f.time],
+      ["Position", position(f.lat, f.lon)],
+      ["Altitude", metres(f.altitude_m)],
+      ["Climb", climbRate(f.climb_ms)],
+      ["Speed", metresPerSecond(f.speed_ms)],
+      ["Heading", degrees(f.heading_deg)],
+      ["Temperature", celsius(f.temperature_c)],
+      ["Humidity", percent(f.humidity_pct)],
+      ["Pressure", hectopascal(f.pressure_hpa)],
+      ["Satellites", f.satellites == null ? undefined : String(f.satellites)],
+      ["Battery", f.battery_v == null ? undefined : `${f.battery_v.toFixed(2)} V`],
+      ["Repaired", f.errors_corrected > 0 ? String(f.errors_corrected) : undefined],
+      ["Frames lost", (f.rejected ?? 0) > 0 ? String(f.rejected) : undefined],
+    ]),
+    body: null,
+  }),
 };
 
 function dataLinkDetail(message: DataLinkMessage): EventDetail {

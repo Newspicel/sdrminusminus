@@ -36,6 +36,7 @@ import {
   ILS_COMPONENTS,
   INVERSION_DEFAULT_HZ,
   IRIDIUM_SPANS,
+  LRPT_MODES,
   NFM_SCRAMBLER_MODES,
   NFM_TONE_MODES,
   NXDN_WIDTHS,
@@ -47,8 +48,12 @@ import {
   RTTY_STOP_BITS,
   SELCALL_SYSTEMS,
   SIDEBANDS,
+  SONDE_AUTO,
+  SONDE_TYPES,
   SSTV_AUTO,
   SSTV_MODES,
+  WEFAX_IOCS,
+  WEFAX_LPMS,
 } from "./modeOptions";
 import { NumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
@@ -154,6 +159,14 @@ export function ModeChips({
       return <IdentChips params={params} {...mode} />;
     case "dect":
       return <DectChips params={params} {...mode} />;
+    case "apt":
+      return <AptChips params={params} {...mode} />;
+    case "lrpt":
+      return <LrptChips params={params} {...mode} />;
+    case "wefax":
+      return <WefaxChips params={params} {...mode} />;
+    case "radiosonde":
+      return <RadiosondeChips params={params} {...mode} />;
     case "dstar":
     case "ysf":
     case "p25":
@@ -1184,6 +1197,82 @@ function DectChips({ params, onParams }: Mode<"dect">) {
         onChange={(sides) => onParams({ type: "dect", settings: { ...settings, sides } })}
       />
     </>
+  );
+}
+
+function AptChips({ params, onParams }: Mode<"apt">) {
+  const settings = params.settings;
+  return (
+    <ToggleChip
+      label="Partial"
+      title="Keep unfinished passes"
+      on={settings.keep_partial ?? true}
+      onChange={(keep_partial) =>
+        onParams({ type: "apt", settings: { ...settings, keep_partial } })
+      }
+    />
+  );
+}
+
+function LrptChips({ params, onParams }: Mode<"lrpt">) {
+  const settings = params.settings;
+  return (
+    <ChoiceChip
+      label="Mode"
+      title="Meteor-M downlink mode"
+      value={settings.mode ?? "oqpsk72"}
+      options={LRPT_MODES}
+      onChange={(mode) => onParams({ type: "lrpt", settings: { ...settings, mode } })}
+    />
+  );
+}
+
+function WefaxChips({ params, onParams }: Mode<"wefax">) {
+  const settings = params.settings;
+  const set = (next: typeof settings) => onParams({ type: "wefax", settings: next });
+  return (
+    <>
+      <ChoiceChip
+        label="IOC"
+        title="Index of cooperation"
+        value={settings.ioc ?? "ioc576"}
+        options={WEFAX_IOCS}
+        onChange={(ioc) => set({ ...settings, ioc })}
+      />
+      <ChoiceChip
+        label="LPM"
+        title="Lines per minute"
+        value={settings.lpm ?? "lpm120"}
+        options={WEFAX_LPMS}
+        onChange={(lpm) => set({ ...settings, lpm })}
+      />
+      <ToggleChip
+        label="Partial"
+        title="Keep unfinished charts"
+        on={settings.keep_partial ?? true}
+        onChange={(keep_partial) => set({ ...settings, keep_partial })}
+      />
+    </>
+  );
+}
+
+function RadiosondeChips({ params, onParams }: Mode<"radiosonde">) {
+  const settings = params.settings;
+  const sonde = settings.sonde ?? SONDE_AUTO;
+  return (
+    <ChoiceChip
+      label="Sonde"
+      title="Sonde type"
+      value={sonde}
+      options={SONDE_TYPES}
+      quiet={sonde === SONDE_AUTO}
+      onChange={(next) =>
+        onParams({
+          type: "radiosonde",
+          settings: { ...settings, sonde: next === SONDE_AUTO ? null : next },
+        })
+      }
+    />
   );
 }
 

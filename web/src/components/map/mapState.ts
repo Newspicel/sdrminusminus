@@ -1,14 +1,14 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { FusionGridFrame } from "../../lib/frame";
 import type { DfOverlay } from "../../lib/map/df";
-import type { MapKind, TargetDetail } from "../../lib/map/layers";
+import { MAP_KINDS, type MapKind, type TargetDetail } from "../../lib/map/layers";
 import type { PropagationOverlay } from "../../lib/map/propagation";
 import type { Selection } from "../../lib/map/targets";
 import type { SurveyCell } from "../../lib/types";
 
 export type Counts = Record<MapKind, number>;
 
-export const ZERO_COUNTS: Counts = { adsb: 0, ais: 0, aprs: 0 };
+export const ZERO_COUNTS: Counts = { adsb: 0, ais: 0, aprs: 0, radiosonde: 0 };
 
 export interface MapInputs {
   kinds: readonly MapKind[];
@@ -43,7 +43,7 @@ export interface MapSinks {
 }
 
 export function sameCounts(a: Counts, b: Counts): boolean {
-  return a.adsb === b.adsb && a.ais === b.ais && a.aprs === b.aprs;
+  return MAP_KINDS.every((kind) => a[kind] === b[kind]);
 }
 
 export function readyCore(core: MapCore | null): MapCore | null {

@@ -1,5 +1,7 @@
+import type { SondeType } from "../lib/types";
 import type { ChannelParamsOf } from "./channelSettings";
 import type { Options } from "./controls";
+import { LRPT_MODE_LABELS, SONDE_LABELS } from "./weatherFormat";
 
 export const DMR_SLOTS: Options<NonNullable<ChannelParamsOf<"dmr">["slots"]>> = [
   { value: "both", label: "Both" },
@@ -213,4 +215,24 @@ export const DATV_CODE_RATES: Options<NonNullable<ChannelParamsOf<"datv">["code_
 export const DVBT_STANDARDS: Options<NonNullable<ChannelParamsOf<"dvbt">["standard"]>> = [
   { value: "dvb_t", label: "DVB-T" },
   { value: "dvb_t2", label: "DVB-T2" },
+];
+function labelled<V extends string>(labels: Record<V, string>): Options<V> {
+  return (Object.keys(labels) as V[]).map((value) => ({ value, label: labels[value] }));
+}
+
+export const LRPT_MODES = labelled(LRPT_MODE_LABELS);
+export const WEFAX_IOCS: Options<NonNullable<ChannelParamsOf<"wefax">["ioc"]>> = [
+  { value: "ioc576", label: "576" },
+  { value: "ioc288", label: "288" },
+];
+export const WEFAX_LPMS: Options<NonNullable<ChannelParamsOf<"wefax">["lpm"]>> = [
+  { value: "lpm60", label: "60" },
+  { value: "lpm90", label: "90" },
+  { value: "lpm120", label: "120" },
+  { value: "lpm240", label: "240" },
+];
+export const SONDE_AUTO = "auto";
+export const SONDE_TYPES: Options<SondeType | typeof SONDE_AUTO> = [
+  { value: SONDE_AUTO, label: "Auto" },
+  ...labelled(SONDE_LABELS),
 ];

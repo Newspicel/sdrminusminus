@@ -62,12 +62,6 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 - TETRA, Tetrapol
 - GSM downlink analysis, OsmocomBB-style monitoring
 
-### Weather & satellites
-- NOAA APT, Meteor M-2 LRPT
-- HF WEFAX: the SSTV picture store already fits. Needs the decoder and line geometry
-- Radiosondes: RS41, DFM, M10/M20, iMet, with map and log
-- APRS weather aggregation
-
 ### Broadcast & wideband
 - Real-world validation of DRM, DVB-T, DVB-S/S2, S2X Annex E and DAB modes II to IV: real
   transmitters, fading, adjacent-channel interference. Today only synthetic IQ

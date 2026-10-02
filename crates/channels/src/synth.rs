@@ -1,6 +1,7 @@
 pub mod acars;
 pub mod adsb;
 pub mod ais;
+pub mod apt;
 pub mod atv;
 pub mod dab;
 mod dab_packet;
@@ -15,18 +16,21 @@ pub mod flex;
 pub mod gnss;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod ident_fixtures;
+pub mod lrpt;
 pub mod morse;
 pub mod navtex;
 pub mod nfm;
 pub mod pocsag;
 pub mod psk;
 pub mod radio_clock;
+pub mod radiosonde;
 pub mod rds;
 pub mod rtty;
 pub mod selcall;
 pub mod sstv;
 pub mod vor;
 pub mod weak_signal;
+pub mod wefax;
 pub mod wfm;
 
 use std::f64::consts::TAU;

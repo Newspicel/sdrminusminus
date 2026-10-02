@@ -286,6 +286,39 @@ describe("eventDetail", () => {
           level_dbfs: -31.5,
         },
       },
+      apt: { kind: "apt", data: { seq: 1, lines: 1200, complete: true, duration_ms: 600_000 } },
+      lrpt: {
+        kind: "lrpt",
+        data: {
+          seq: 1,
+          mode: "oqpsk72",
+          width: 1568,
+          lines: 800,
+          complete: false,
+          duration_ms: 480_000,
+          apids: [64, 65, 68],
+          frames: 1000,
+          frames_corrected: 40,
+          frames_failed: 3,
+          packets_lost: 2,
+        },
+      },
+      wefax: {
+        kind: "wefax",
+        data: {
+          seq: 1,
+          ioc: "ioc576",
+          lpm: "lpm120",
+          width: 1809,
+          lines: 900,
+          complete: true,
+          duration_ms: 450_000,
+        },
+      },
+      radiosonde: {
+        kind: "radiosonde",
+        data: { sonde: "rs41", serial: "S1234567", errors_corrected: 0 },
+      },
     };
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();
@@ -704,6 +737,138 @@ describe("eventDetail", () => {
       "Mic-E message": "En Route",
     });
     expect(detail.body).toBe('DL1ABC-9>S32U6T:`(_fn"Oj/');
+  });
+
+  it("adds APRS weather with units", () => {
+    const detail = eventDetail({
+      kind: "aprs",
+      data: {
+        source: "DL1WX",
+        destination: "APRS",
+        info: "_",
+        tnc2: "DL1WX>APRS:_",
+        weather: {
+          wind_dir_deg: 220,
+          wind_speed_ms: 4.5,
+          wind_gust_ms: 9,
+          temperature_c: 12.25,
+          humidity_pct: 81,
+          pressure_hpa: 1013.2,
+          rain_1h_mm: 0.5,
+          luminosity_wm2: 300,
+        },
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Wind: "4.5 m/s from 220°",
+      Gust: "9.0 m/s",
+      Temperature: "12.3 °C",
+      Humidity: "81%",
+      Pressure: "1013.2 hPa",
+      "Rain 1 h": "0.5 mm",
+      Luminosity: "300 W/m²",
+    });
+  });
+
+  it("names the AVHRR channels of an APT pass", () => {
+    expect(
+      fieldsOf({
+        kind: "apt",
+        data: {
+          seq: 2,
+          lines: 900,
+          complete: false,
+          duration_ms: 450_000,
+          channel_a: "ch2",
+          channel_b: "ch4",
+        },
+      }),
+    ).toMatchObject({ Channels: "ch 2 + 4", State: "cut short", Took: "450.0 s" });
+  });
+
+  it("shows LRPT link quality", () => {
+    expect(
+      fieldsOf({
+        kind: "lrpt",
+        data: {
+          seq: 1,
+          mode: "oqpsk80",
+          width: 1568,
+          lines: 400,
+          complete: true,
+          duration_ms: 1000,
+          apids: [64, 65],
+          frames: 500,
+          frames_corrected: 12,
+          frames_failed: 1,
+          packets_lost: 4,
+        },
+      }),
+    ).toMatchObject({
+      Mode: "OQPSK 80k",
+      APIDs: "64, 65",
+      "Frames repaired": "12",
+      "Frames failed": "1",
+      "Packets lost": "4",
+    });
+  });
+
+  it("shows WEFAX timing", () => {
+    expect(
+      fieldsOf({
+        kind: "wefax",
+        data: {
+          seq: 1,
+          ioc: "ioc288",
+          lpm: "lpm60",
+          width: 904,
+          lines: 300,
+          complete: true,
+          duration_ms: 300_000,
+        },
+      }),
+    ).toMatchObject({ IOC: "288", Speed: "60 LPM", Size: "904 \u00d7 300" });
+  });
+
+  it("shows radiosonde telemetry with units", () => {
+    expect(
+      fieldsOf({
+        kind: "radiosonde",
+        data: {
+          sonde: "dfm",
+          serial: "D2150123",
+          frame: 4321,
+          lat: 48.1,
+          lon: 11.5,
+          altitude_m: 12_345.6,
+          climb_ms: -4.25,
+          speed_ms: 12,
+          heading_deg: 90,
+          temperature_c: -51.2,
+          humidity_pct: 12.4,
+          pressure_hpa: 190.5,
+          satellites: 9,
+          battery_v: 2.9,
+          errors_corrected: 3,
+          rejected: 2,
+        },
+      }),
+    ).toMatchObject({
+      Serial: "D2150123",
+      Type: "DFM",
+      Frame: "4321",
+      Altitude: "12,346 m",
+      Climb: "-4.3 m/s",
+      Speed: "12.0 m/s",
+      Heading: "90°",
+      Temperature: "-51.2 °C",
+      Humidity: "12%",
+      Pressure: "190.5 hPa",
+      Satellites: "9",
+      Battery: "2.90 V",
+      Repaired: "3",
+      "Frames lost": "2",
+    });
   });
 
   it("has nothing to add for a frame whose whole content is its summary", () => {

@@ -64,7 +64,7 @@ const FIXED_CATALOG: &[(&str, &str, &str)] = &[
         "Event output",
         "Sends events out, saves call audio",
     ),
-    ("video", "Video", "ATV frames and SSTV pictures"),
+    ("video", "Video", "ATV frames and decoded pictures"),
     ("recorder", "Recorder", "Records a radio's full IQ"),
     (
         "audio_recorder",

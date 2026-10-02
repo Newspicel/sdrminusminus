@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FLUSH_MS, RING_CAPACITY, STATION_CAPACITY, useDecodedStore } from "./decoded";
-import type { AdsbMessage, DecodedRecord, RdsUpdate } from "./types";
+import type { AdsbMessage, DecodedRecord, RadiosondeFrame, RdsUpdate } from "./types";
 
 const T0 = Date.parse("2026-08-09T12:00:00Z");
 
@@ -35,6 +35,16 @@ function rtty(text: string, offsetMs = 0): DecodedRecord {
     channel: 3,
     freq_hz: 14_083_000,
     event: { kind: "rtty", data: { text } },
+  };
+}
+
+function sonde(data: Partial<RadiosondeFrame> & { serial: string }, offsetMs = 0): DecodedRecord {
+  return {
+    at: at(offsetMs),
+    device_set: 0,
+    channel: 4,
+    freq_hz: 403_000_000,
+    event: { kind: "radiosonde", data: { sonde: "rs41", errors_corrected: 0, ...data } },
   };
 }
 
@@ -149,6 +159,18 @@ describe("stations", () => {
 
     expect(useDecodedStore.getState().stations.adsb).toHaveLength(2);
     expect(useDecodedStore.getState().stations.rds).toHaveLength(1);
+  });
+
+  it("keys radiosondes by serial", () => {
+    push(
+      sonde({ serial: "S1234567", altitude_m: 1_000 }, 0),
+      sonde({ serial: "S1234567", altitude_m: 1_050 }, 1_000),
+    );
+
+    const stations = useDecodedStore.getState().stations.radiosonde ?? [];
+    expect(stations).toHaveLength(1);
+    expect(stations[0]?.id).toBe("S1234567");
+    expect(stations[0]?.event.data.altitude_m).toBe(1_050);
   });
 
   it("has no rows for character-stream decoders", () => {

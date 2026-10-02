@@ -37,6 +37,7 @@ pub mod survey;
 pub mod timemachine;
 pub mod tools;
 pub mod units;
+pub mod weather;
 pub mod workspace;
 pub mod workspace_state;
 pub mod ws;
@@ -252,6 +253,10 @@ pub use tools::{
     NanoVnaRequest, NanoVnaResult, NanoVnaStandard, NanoVnaSweep, NanoVnaSweepRequest,
     NanoVnaSweepState, ToolCategory, ToolDescriptor, ToolRequest, ToolResponse, ToolsResponse,
     YagiParams,
+};
+pub use weather::{
+    AprsWeather, AptImage, AptParams, AvhrrChannel, LrptImage, LrptMode, LrptParams,
+    RadiosondeFrame, RadiosondeParams, SondeType, WefaxIoc, WefaxLpm, WefaxParams, WefaxPicture,
 };
 pub use workspace::{
     CreateWorkspaceRequest, DroppedNode, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport,

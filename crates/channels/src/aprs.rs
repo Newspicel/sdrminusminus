@@ -1,3 +1,5 @@
+mod weather;
+
 use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
@@ -400,6 +402,7 @@ struct Report {
     speed_kt: Option<f64>,
     comment: Option<String>,
     altitude_ft: Option<i32>,
+    wind_unit: weather::WindUnit,
 }
 
 const TIMESTAMP_LEN: usize = 7;
@@ -412,6 +415,10 @@ fn apply_aprs(info: &[u8], packet: &mut AprsPacket) {
         MIC_E_CURRENT | MIC_E_OLD | MIC_E_CURRENT_BETA | MIC_E_OLD_BETA => mic_e(rest, packet),
         b'!' | b'=' => parse_position(rest),
         b'/' | b'@' => rest.get(TIMESTAMP_LEN..).and_then(parse_position),
+        b'_' => {
+            packet.weather = weather::positionless(rest);
+            None
+        }
         _ => None,
     };
     let Some(report) = report else {
@@ -419,11 +426,22 @@ fn apply_aprs(info: &[u8], packet: &mut AprsPacket) {
     };
     packet.lat = Some(report.lat);
     packet.lon = Some(report.lon);
-    packet.symbol = Some(report.symbol);
-    packet.course_deg = report.course_deg;
-    packet.speed_kt = report.speed_kt;
-    packet.comment = report.comment;
     packet.altitude_ft = report.altitude_ft;
+    if weather::is_station(&report.symbol) {
+        let (reading, comment) = weather::with_position(
+            report.course_deg,
+            report.speed_kt,
+            report.wind_unit,
+            report.comment.as_deref(),
+        );
+        packet.weather = reading;
+        packet.comment = comment;
+    } else {
+        packet.course_deg = report.course_deg;
+        packet.speed_kt = report.speed_kt;
+        packet.comment = report.comment;
+    }
+    packet.symbol = Some(report.symbol);
 }
 
 fn parse_position(body: &[u8]) -> Option<Report> {
@@ -452,6 +470,7 @@ fn uncompressed_position(body: &[u8]) -> Option<Report> {
         speed_kt,
         comment,
         altitude_ft,
+        wind_unit: weather::WindUnit::Mph,
     })
 }
 
@@ -490,6 +509,7 @@ fn compressed_position(body: &[u8]) -> Option<Report> {
         speed_kt,
         comment,
         altitude_ft: comment_alt_ft.or(compressed_alt_ft),
+        wind_unit: weather::WindUnit::Knots,
     })
 }
 
@@ -693,6 +713,7 @@ fn mic_e_report(destination: &MicEDestination, body: &[u8]) -> Option<Report> {
         speed_kt,
         comment,
         altitude_ft: comment_alt_ft.or_else(|| mic_e_altitude_ft(status)),
+        wind_unit: weather::WindUnit::Knots,
     })
 }
 
@@ -1425,6 +1446,49 @@ mod tests {
         let speed = packet.speed_kt.unwrap();
         assert!((speed - 36.2).abs() < 0.1, "speed {speed}");
         assert_eq!(packet.comment.as_deref(), Some("Compressed"));
+    }
+
+    #[test]
+    fn a_weather_station_reports_wind_instead_of_course() {
+        let frame = AprsTx::ui_frame(
+            "DL1ABC-13",
+            "APRS",
+            &[],
+            "!4903.50N/07201.75W_220/004g005t077r000p000P000h50b09900wRSW",
+        );
+        let packet = only(decode(
+            AprsMode::Afsk1200,
+            &keyed(AprsMode::Afsk1200, &frame),
+        ));
+        assert_eq!(packet.symbol.as_deref(), Some("/_"));
+        assert_eq!(packet.course_deg, None);
+        assert_eq!(packet.speed_kt, None);
+        assert_eq!(packet.comment.as_deref(), Some("wRSW"));
+        let weather = packet.weather.expect("weather");
+        assert_eq!(weather.wind_dir_deg, Some(220));
+        assert_eq!(weather.humidity_pct, Some(50));
+        let temperature = weather.temperature_c.expect("temperature");
+        assert!((temperature - 25.0).abs() < 0.01, "{temperature}");
+    }
+
+    #[test]
+    fn a_positionless_weather_report_decodes_without_a_position() {
+        let frame = AprsTx::ui_frame(
+            "DL1ABC-13",
+            "APRS",
+            &[],
+            "_10090556c220s004g005t077r000p000P000h50b09900",
+        );
+        let packet = only(decode(
+            AprsMode::Afsk1200,
+            &keyed(AprsMode::Afsk1200, &frame),
+        ));
+        assert_eq!(packet.lat, None);
+        let pressure = packet
+            .weather
+            .and_then(|w| w.pressure_hpa)
+            .expect("pressure");
+        assert!((pressure - 990.0).abs() < 0.01, "{pressure}");
     }
 
     #[test]

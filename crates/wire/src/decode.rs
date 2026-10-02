@@ -4,6 +4,7 @@ use utoipa::ToSchema;
 use crate::{
     PskBaud, RadioClockStandard,
     channel::{DabTransmissionMode, SstvMode},
+    weather::AprsWeather,
 };
 
 pub const NO_CHANNEL: u32 = u32::MAX;
@@ -164,6 +165,8 @@ pub struct AprsPacket {
     pub altitude_ft: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mic_e_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weather: Option<crate::weather::AprsWeather>,
     pub tnc2: String,
 }
 
@@ -1190,6 +1193,10 @@ pub enum DecoderEvent {
     DfFix(crate::fusion::DfEstimate),
     Radar(crate::radar::RadarTrackEvent),
     Dect(DectFrame),
+    Apt(crate::weather::AptImage),
+    Lrpt(crate::weather::LrptImage),
+    Wefax(crate::weather::WefaxPicture),
+    Radiosonde(crate::weather::RadiosondeFrame),
 }
 
 fn dect_summary(f: &DectFrame) -> String {
@@ -1428,6 +1435,10 @@ impl DecoderEvent {
             Self::DfFix(_) => "df_fix",
             Self::Radar(_) => "radar",
             Self::Dect(_) => "dect",
+            Self::Apt(_) => "apt",
+            Self::Lrpt(_) => "lrpt",
+            Self::Wefax(_) => "wefax",
+            Self::Radiosonde(_) => "radiosonde",
         }
     }
 
@@ -1479,10 +1490,16 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
-            Self::Aprs(p) => match &p.mic_e_message {
-                Some(message) => format!("{} · {message}", p.tnc2),
-                None => p.tnc2.clone(),
-            },
+            Self::Aprs(p) => {
+                let weather = p.weather.as_ref().map(AprsWeather::summary);
+                match (&p.mic_e_message, weather) {
+                    (Some(message), _) => format!("{} · {message}", p.tnc2),
+                    (None, Some(weather)) if !weather.is_empty() => {
+                        format!("{} · {weather}", p.source)
+                    }
+                    _ => p.tnc2.clone(),
+                }
+            }
             Self::Rtty(t) => t.text.clone(),
             Self::Morse(m) => m.text.clone(),
             Self::CwSkimmer(s) => format!("{:+.0} Hz · {:.0} WPM · {}", s.offset_hz, s.wpm, s.text),
@@ -1629,6 +1646,10 @@ impl DecoderEvent {
             | Self::Hfdl(m)
             | Self::Iridium(m) => data_link_summary(m),
             Self::Dect(f) => dect_summary(f),
+            Self::Apt(p) => crate::weather::apt_summary(p),
+            Self::Lrpt(p) => crate::weather::lrpt_summary(p),
+            Self::Wefax(p) => crate::weather::wefax_summary(p),
+            Self::Radiosonde(f) => crate::weather::radiosonde_summary(f),
         }
     }
 
@@ -1642,6 +1663,7 @@ impl DecoderEvent {
             Self::Df(b) => (b.lat, b.lon),
             Self::DfFix(e) => (Some(e.lat), Some(e.lon)),
             Self::Radar(t) => (t.lat, t.lon),
+            Self::Radiosonde(f) => (f.lat, f.lon),
             Self::Dsc(m)
             | Self::InmarsatStdc(m)
             | Self::InmarsatAero(m)
@@ -1701,6 +1723,10 @@ impl DecoderEvent {
             | Self::Iridium(m) => m.station.clone(),
             Self::Dect(f) => f.identity.as_ref().map(|id| id.rfpi.clone()),
             Self::Ils(_) => None,
+            Self::Apt(_) => Some("APT".to_owned()),
+            Self::Lrpt(_) => Some("LRPT".to_owned()),
+            Self::Wefax(p) => Some(format!("IOC {}", p.ioc.value())),
+            Self::Radiosonde(f) => Some(f.serial.clone()),
         }
     }
 }
