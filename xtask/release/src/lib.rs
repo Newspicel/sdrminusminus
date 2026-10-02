@@ -11,6 +11,7 @@ use anyhow::Result;
 use clap::Subcommand;
 
 const HOMEPAGE: &str = "https://sdrmm.com";
+const DOWNLOADS: &str = "https://downloads.sdrmm.com/releases";
 
 #[derive(Subcommand)]
 pub enum Cmd {
@@ -46,8 +47,6 @@ pub enum Cmd {
         #[arg(long)]
         sums: PathBuf,
         #[arg(long)]
-        repo: String,
-        #[arg(long)]
         out: PathBuf,
     },
     Aur {
@@ -55,8 +54,6 @@ pub enum Cmd {
         version: String,
         #[arg(long)]
         sums: PathBuf,
-        #[arg(long)]
-        repo: String,
         #[arg(long)]
         out: PathBuf,
     },
@@ -74,18 +71,8 @@ pub fn run(root: &Path, cmd: &Cmd) -> Result<()> {
             base_url,
             out,
         } => updater::manifest(dir, version, base_url, out.as_deref()),
-        Cmd::HomebrewTap {
-            version,
-            sums,
-            repo,
-            out,
-        } => homebrew::tap(sums, version, repo, out),
-        Cmd::Aur {
-            version,
-            sums,
-            repo,
-            out,
-        } => aur::packages(sums, version, repo, out),
+        Cmd::HomebrewTap { version, sums, out } => homebrew::tap(sums, version, out),
+        Cmd::Aur { version, sums, out } => aur::packages(sums, version, out),
     }
 }
 

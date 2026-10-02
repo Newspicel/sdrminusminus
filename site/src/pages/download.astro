@@ -490,41 +490,44 @@ function show(key, assets) {
   el("pick-alts").replaceChildren(...alts);
 }
 
+async function json(url, headers) {
+  try {
+    const answer = await fetch(url, { headers, cache: "no-cache" });
+    return answer.ok ? await answer.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function release() {
-  try {
-    const answer = await fetch(RELEASE, { headers: { accept: "application/vnd.github+json" } });
-    if (!answer.ok) return null;
-    return await answer.json();
-  } catch {
-    return null;
+  const mirrored = await json(MIRROR + "release.json");
+  if (mirrored) {
+    const base = MIRROR + mirrored.tag + "/";
+    return {
+      name: mirrored.name,
+      published_at: mirrored.published_at,
+      notes: mirrored.notes,
+      assets: mirrored.assets.map((asset) => ({ ...asset, href: base + encodeURIComponent(asset.name) })),
+    };
   }
-}
-
-async function mirrorTag() {
-  try {
-    const answer = await fetch(MIRROR + "latest", { cache: "no-cache" });
-    return answer.ok ? (await answer.text()).trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-function located(latest, mirrored) {
-  const base = latest && mirrored === latest.tag_name ? MIRROR + latest.tag_name + "/" : null;
-  return ((latest && latest.assets) || []).map((asset) => ({
-    ...asset,
-    href: base ? base + encodeURIComponent(asset.name) : asset.browser_download_url,
-  }));
+  const github = await json(RELEASE, { accept: "application/vnd.github+json" });
+  if (!github) return null;
+  return {
+    name: github.name,
+    published_at: github.published_at,
+    notes: github.html_url,
+    assets: github.assets.map((asset) => ({ name: asset.name, size: asset.size, href: asset.browser_download_url })),
+  };
 }
 
 async function start() {
-  const [key, latest, mirrored] = await Promise.all([detect(), release(), mirrorTag()]);
-  const assets = located(latest, mirrored);
+  const [key, latest] = await Promise.all([detect(), release()]);
+  const assets = (latest && latest.assets) || [];
 
   if (latest) {
     el("stamp").replaceChildren(
       document.createTextNode(latest.name + " · released " + new Date(latest.published_at).toLocaleDateString(undefined, { dateStyle: "medium" }) + " · "),
-      link(latest.html_url, "release notes"),
+      link(latest.notes, "release notes"),
     );
     for (const row of document.querySelectorAll(".row[data-file]")) {
       const asset = assets.find((candidate) => candidate.name.endsWith(row.dataset.file));

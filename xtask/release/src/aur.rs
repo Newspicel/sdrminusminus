@@ -2,8 +2,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::HOMEPAGE;
 use crate::sums::{Digests, digest, parse};
+use crate::{DOWNLOADS, HOMEPAGE};
 
 const ARCHES: [Arch; 2] = [
     Arch {
@@ -44,15 +44,12 @@ struct Source {
     sha256: String,
 }
 
-pub fn packages(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
+pub fn packages(sums: &Path, version: &str, out: &Path) -> Result<()> {
     let text = std::fs::read_to_string(sums).with_context(|| format!("read {}", sums.display()))?;
     let digests = parse(&text)?;
     let version = version.strip_prefix('v').unwrap_or(version);
 
-    for package in [
-        desktop(&digests, version, repo)?,
-        server(&digests, version, repo)?,
-    ] {
+    for package in [desktop(&digests, version)?, server(&digests, version)?] {
         let dir = out.join(package.name);
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
         for (file, contents) in [
@@ -70,7 +67,6 @@ pub fn packages(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()
 fn sources(
     digests: &Digests,
     version: &str,
-    repo: &str,
     file: impl Fn(&Arch) -> String,
 ) -> Result<Vec<Source>> {
     ARCHES
@@ -79,7 +75,7 @@ fn sources(
             let file = file(arch);
             Ok(Source {
                 arch: arch.pacman,
-                url: format!("https://github.com/{repo}/releases/download/v{version}/{file}"),
+                url: format!("{DOWNLOADS}/v{version}/{file}"),
                 sha256: digest(digests, &file)?.to_string(),
                 file,
             })
@@ -87,7 +83,7 @@ fn sources(
         .collect()
 }
 
-fn desktop(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
+fn desktop(digests: &Digests, version: &str) -> Result<Package> {
     Ok(Package {
         name: "sdrmm-app-bin",
         url: HOMEPAGE,
@@ -105,7 +101,7 @@ fn desktop(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
             "libsoup3",
             "webkit2gtk-4.1",
         ],
-        sources: sources(digests, version, repo, |arch| {
+        sources: sources(digests, version, |arch| {
             format!("sdrmm-app_{version}_{}.deb", arch.deb)
         })?,
         install: "  bsdtar -xf data.tar.gz -C \"$pkgdir\"\n  install -Dm644 \
@@ -115,7 +111,7 @@ fn desktop(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
     })
 }
 
-fn server(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
+fn server(digests: &Digests, version: &str) -> Result<Package> {
     Ok(Package {
         name: "sdrmm-bin",
         url: HOMEPAGE,
@@ -123,7 +119,7 @@ fn server(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
         conflicts: &["sdrmm"],
         desc: "Modular software-defined radio, headless server",
         depends: &["gcc-libs", "glibc"],
-        sources: sources(digests, version, repo, |arch| {
+        sources: sources(digests, version, |arch| {
             format!("sdrmm-{version}-{}.tar.gz", arch.triple)
         })?,
         install: format!(
@@ -224,8 +220,6 @@ fn srcinfo(package: &Package, version: &str) -> String {
 mod tests {
     use super::*;
 
-    const REPO: &str = "Newspicel/sdrmm";
-
     fn sums() -> String {
         let mut lines = Vec::new();
         for arch in ARCHES {
@@ -245,10 +239,10 @@ mod tests {
 
     #[test]
     fn desktop_package_pairs_each_arch_with_its_deb() {
-        let package = desktop(&parse(&sums()).unwrap(), "1.2.3", REPO).unwrap();
+        let package = desktop(&parse(&sums()).unwrap(), "1.2.3").unwrap();
         let pkgbuild = pkgbuild(&package, "1.2.3");
         assert!(pkgbuild.contains(&format!(
-            "source_x86_64=('sdrmm-app_1.2.3_amd64.deb::https://github.com/{REPO}/releases/download/v1.2.3/sdrmm-app_1.2.3_amd64.deb')\nsha256sums_x86_64=('{}')",
+            "source_x86_64=('sdrmm-app_1.2.3_amd64.deb::https://downloads.sdrmm.com/releases/v1.2.3/sdrmm-app_1.2.3_amd64.deb')\nsha256sums_x86_64=('{}')",
             "d".repeat(64)
         )), "{pkgbuild}");
         assert!(pkgbuild.contains("sdrmm-app_1.2.3_arm64.deb"));
@@ -258,7 +252,7 @@ mod tests {
 
     #[test]
     fn srcinfo_mirrors_the_pkgbuild() {
-        let package = server(&parse(&sums()).unwrap(), "1.2.3", REPO).unwrap();
+        let package = server(&parse(&sums()).unwrap(), "1.2.3").unwrap();
         let srcinfo = srcinfo(&package, "1.2.3");
         assert!(srcinfo.starts_with("pkgbase = sdrmm-bin\n"));
         assert!(srcinfo.ends_with("\npkgname = sdrmm-bin\n"));
@@ -284,7 +278,7 @@ mod tests {
             ),
             "",
         );
-        let err = server(&parse(&sums).unwrap(), "1.2.3", REPO)
+        let err = server(&parse(&sums).unwrap(), "1.2.3")
             .err()
             .unwrap()
             .to_string();
