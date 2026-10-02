@@ -512,7 +512,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Fetch checksums
-        run: curl -fsSLO "$DOWNLOADS/$GITHUB_REF_NAME/SHA256SUMS"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
       - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/homebrew-tap
