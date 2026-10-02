@@ -24,6 +24,7 @@ jobs:
       winget: ${{ steps.publish.outputs.winget }}
       aur: ${{ steps.publish.outputs.aur }}
       packages: ${{ steps.publish.outputs.packages }}
+      mirror: ${{ steps.publish.outputs.mirror }}
     steps:
       - id: changed
         env:
@@ -50,15 +51,18 @@ jobs:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           PACKAGES_SSH_KEY: ${{ secrets.PACKAGES_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           {
             echo "tap=${TAP_TOKEN:+true}"
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
             if [ -n "$PACKAGES_SSH_KEY" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
+            if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then echo "mirror=true"; fi
           } >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            for name in tap winget aur packages; do
+            for name in tap winget aur packages mirror; do
               grep -qx "$name=true" "$GITHUB_OUTPUT" || echo "::warning::$name not published: secret missing"
             done
           fi
@@ -473,6 +477,28 @@ jobs:
             --prerelease \
             --notes "Build of \`main\` at ${GITHUB_SHA}. Replaced every night. Container image: \`docker pull ${IMAGE_NAME}:nightly\`" \
             "${files[@]}"
+
+  mirror:
+    name: Mirror to downloads.sdrmm.com
+    if: github.ref_type == 'tag' && needs.plan.outputs.mirror == 'true'
+    needs: [plan, release]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER: npx --yes wrangler@4
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch release
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release"
+      - name: Upload
+        run: |
+          scripts/r2-upload.sh "releases/$GITHUB_REF_NAME" "$RUNNER_TEMP"/release/*
+          sed "s#https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME#https://downloads.sdrmm.com/releases/$GITHUB_REF_NAME#g" \
+            "$RUNNER_TEMP/release/latest.json" > "$RUNNER_TEMP/latest.json"
+          printf '%s\n' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/latest"
+          CACHE_CONTROL="public, max-age=300" scripts/r2-upload.sh releases "$RUNNER_TEMP/latest.json" "$RUNNER_TEMP/latest"
 
   homebrew:
     name: Homebrew tap

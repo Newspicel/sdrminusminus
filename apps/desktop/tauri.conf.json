@@ -44,6 +44,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ2QkUwNzFEODc5MzYzRTgKUldUb1k1T0hIUWUrMXQ5M21PK2VmYUJFekgvZnoyS0U1dm9TQ1RPNW5kTnVRTkRaOU9TZUFMelcK",
       "endpoints": [
+        "https://downloads.sdrmm.com/releases/latest.json",
         "https://github.com/newspicel/sdrmm/releases/latest/download/latest.json"
       ],
       "windows": {

@@ -371,6 +371,7 @@ import Page from "../layouts/Page.astro";
 
 <script is:inline>
 const RELEASE = "https://api.github.com/repos/Newspicel/sdrmm/releases/latest";
+const MIRROR = "https://downloads.sdrmm.com/releases/";
 
 const PICKS = {
   "mac-arm": { who: "macOS · Apple silicon", file: "_aarch64.dmg", label: "Download for macOS", alts: ["mac-intel"] },
@@ -480,7 +481,7 @@ function show(key, assets) {
   el("pick-btn").textContent = pick.label;
   el("pick-file").textContent = asset ? asset.name + " · " + filesize(asset.size) : "";
   el("pick-file").hidden = !asset;
-  if (asset) el("pick-btn").href = asset.browser_download_url;
+  if (asset) el("pick-btn").href = asset.href;
   el("pick-hint").textContent = pick.hint || "";
   el("pick-hint").hidden = !pick.hint;
 
@@ -499,9 +500,26 @@ async function release() {
   }
 }
 
+async function mirrorTag() {
+  try {
+    const answer = await fetch(MIRROR + "latest", { cache: "no-cache" });
+    return answer.ok ? (await answer.text()).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function located(latest, mirrored) {
+  const base = latest && mirrored === latest.tag_name ? MIRROR + latest.tag_name + "/" : null;
+  return ((latest && latest.assets) || []).map((asset) => ({
+    ...asset,
+    href: base ? base + encodeURIComponent(asset.name) : asset.browser_download_url,
+  }));
+}
+
 async function start() {
-  const [key, latest] = await Promise.all([detect(), release()]);
-  const assets = (latest && latest.assets) || [];
+  const [key, latest, mirrored] = await Promise.all([detect(), release(), mirrorTag()]);
+  const assets = located(latest, mirrored);
 
   if (latest) {
     el("stamp").replaceChildren(
@@ -511,7 +529,7 @@ async function start() {
     for (const row of document.querySelectorAll(".row[data-file]")) {
       const asset = assets.find((candidate) => candidate.name.endsWith(row.dataset.file));
       if (!asset) continue;
-      row.href = asset.browser_download_url;
+      row.href = asset.href;
       row.querySelector(".name").textContent = asset.name;
       row.querySelector(".size").textContent = filesize(asset.size);
     }

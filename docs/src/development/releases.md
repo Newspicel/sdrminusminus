@@ -73,8 +73,8 @@ the installed plugins WebKit uses for audio.
 
 ## Desktop updates
 
-The app checks the latest stable GitHub release at startup. Update archives use a Tauri updater
-signature separate from platform code signing. Preserve the private updater key; installed clients
+The app checks `downloads.sdrmm.com` for the latest stable release at startup, then GitHub if the
+mirror has none. Update archives use a Tauri updater signature separate from platform code signing. Preserve the private updater key; installed clients
 trust its compiled public key.
 
 Without a local signing key, the bundle task uses `--no-sign`. Those installers cannot serve as
@@ -121,6 +121,22 @@ Validate generator changes:
 brew style newspicel/tap
 brew audit --strict --online --cask newspicel/tap/sdrmm-app
 ```
+
+## downloads.sdrmm.com
+
+The R2 bucket `sdrmm` serves `downloads.sdrmm.com`. Each stable release is mirrored to
+`releases/<tag>/`, and `releases/latest` names the newest tag. `releases/latest.json` is the
+updater manifest with mirror URLs; the download page uses the mirror once it holds the newest tag.
+GitHub Releases stays the primary copy. The mirror job needs `CLOUDFLARE_API_TOKEN` (R2 write) and `CLOUDFLARE_ACCOUNT_ID`; without
+them, it is skipped.
+
+Denoise models live under `denoise/v1/`. After `cargo xtask denoise-model`, upload them with:
+
+```sh
+scripts/r2-upload.sh denoise/v1 target/denoise-model/*.sdrmmnn
+```
+
+Uploads are cached as immutable. Never replace a file; publish a new prefix instead.
 
 ## Release checklist
 
