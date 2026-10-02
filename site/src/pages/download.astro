@@ -269,7 +269,7 @@ import Page from "../layouts/Page.astro";
 }
 .pick .who { margin: 0; font-size: 14px; color: var(--ink-dim); }
 .pick .btn.primary { font-size: 16px; padding: 14px 28px; }
-.pick .file { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); overflow-wrap: anywhere; }
+.pick .file { margin: 0; min-height: 1lh; font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); overflow-wrap: anywhere; }
 .pick .hint { margin: 0; font-size: 14px; color: var(--ink-dim); max-width: 44ch; }
 .pick .alts {
   margin: 6px 0 0;
@@ -430,11 +430,9 @@ function handheld() {
   return /iPad/.test(agent) || (/Mac/.test(agent) && navigator.maxTouchPoints > 2);
 }
 
-async function detect() {
-  if (handheld()) return "";
+function detect(chip) {
   const agent = navigator.userAgent;
   const family = (navigator.userAgentData && navigator.userAgentData.platform) || agent;
-  const chip = await architecture();
   const arm = chip.startsWith("arm");
   if (/Mac/i.test(family)) return chip.startsWith("x86") ? "mac-intel" : "mac-arm";
   if (/Win/i.test(family)) return arm ? "windows-arm" : "windows";
@@ -473,14 +471,16 @@ function link(href, text, onClick) {
   return anchor;
 }
 
+let shown = "";
+
 function show(key, assets) {
+  shown = key;
   const pick = PICKS[key];
   const asset = assets.find((candidate) => candidate.name.endsWith(pick.file));
 
   el("pick-who").textContent = pick.who;
   el("pick-btn").textContent = pick.label;
   el("pick-file").textContent = asset ? asset.name + " · " + filesize(asset.size) : "";
-  el("pick-file").hidden = !asset;
   if (asset) el("pick-btn").href = asset.href;
   el("pick-hint").textContent = pick.hint || "";
   el("pick-hint").hidden = !pick.hint;
@@ -521,8 +521,14 @@ async function release() {
 }
 
 async function start() {
-  const [key, latest] = await Promise.all([detect(), release()]);
+  const phone = handheld();
+  const guess = phone ? "" : detect("");
+  if (phone) handheldCard();
+  else if (guess) show(guess, []);
+
+  const [chip, latest] = await Promise.all([architecture(), release()]);
   const assets = (latest && latest.assets) || [];
+  const key = phone ? "" : shown === guess ? detect(chip) : shown;
 
   if (latest) {
     el("stamp").replaceChildren(
@@ -538,8 +544,7 @@ async function start() {
     }
   }
 
-  if (handheld()) handheldCard();
-  else if (key) show(key, assets);
+  if (key) show(key, assets);
 }
 
 start();
