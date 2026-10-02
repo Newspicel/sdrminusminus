@@ -536,6 +536,49 @@ fn warn_coerced_rate(requested: Option<f64>, actual: Option<f64>) {
     }
 }
 
+fn seed_sample_rates(
+    device: &soapy::Device,
+    capabilities: &Capabilities,
+) -> Result<(), DeviceError> {
+    let Some(directional) = &capabilities.directional else {
+        return Ok(());
+    };
+    for (direction, channels) in [
+        (Direction::Rx, &directional.rx),
+        (Direction::Tx, &directional.tx),
+    ] {
+        seed_channel_rates(
+            channels,
+            |channel| device.sample_rate(direction, channel),
+            |channel, rate| device.set_sample_rate(direction, channel, rate),
+        )?;
+    }
+    Ok(())
+}
+
+fn seed_channel_rates(
+    channels: &[ChannelCapabilities],
+    read: impl Fn(usize) -> Result<f64, soapy::Error>,
+    mut write: impl FnMut(usize, f64) -> Result<(), soapy::Error>,
+) -> Result<(), DeviceError> {
+    for channel in channels {
+        let index = channel.channel as usize;
+        if read(index).is_ok_and(caps::rate_is_set) {
+            continue;
+        }
+        let Some(rate) = caps::default_sample_rate(channel) else {
+            continue;
+        };
+        tracing::info!(
+            channel = index,
+            rate_hz = rate,
+            "soapy: no sample rate set, using default"
+        );
+        write(index, rate).map_err(map_err)?;
+    }
+    Ok(())
+}
+
 struct Undo {
     extras: Vec<(String, String)>,
     automatic_gain: Option<bool>,
@@ -555,6 +598,7 @@ pub struct SoapyDevice {
 impl SoapyDevice {
     fn from_device(device: soapy::Device, identity: ProbeIdentity) -> Result<Self, DeviceError> {
         let capabilities = query_capabilities(&device)?;
+        seed_sample_rates(&device, &capabilities)?;
         let settings = read_settings(&device, &capabilities);
         let duplex = Arc::new(Mutex::new(DuplexState::new(capabilities.duplex)));
         Ok(Self {
@@ -1234,6 +1278,45 @@ mod tests {
             map_err(error(ErrorCode::NotSupported)),
             DeviceError::Unsupported(_)
         ));
+    }
+
+    #[test]
+    fn a_channel_without_a_rate_is_given_one_before_it_streams() {
+        let channel = |index: u32| ChannelCapabilities {
+            channel: index,
+            sample_rate_ranges: vec![sdrmm_wire::Range {
+                min: 100e3,
+                max: 61.44e6,
+                step: None,
+            }],
+            ..ChannelCapabilities::default()
+        };
+        let current = [0.0, 8e6];
+        let mut written = Vec::new();
+        seed_channel_rates(
+            &[channel(0), channel(1)],
+            |index| Ok(current[index]),
+            |index, rate| {
+                written.push((index, rate));
+                Ok(())
+            },
+        )
+        .expect("seeded");
+        assert_eq!(written, vec![(0, 2_048_000.0)]);
+    }
+
+    #[test]
+    fn a_rate_the_radio_refuses_fails_the_open() {
+        let channel = ChannelCapabilities {
+            sample_rates: vec![2.4e6],
+            ..ChannelCapabilities::default()
+        };
+        let outcome = seed_channel_rates(
+            &[channel],
+            |_| Err(error(ErrorCode::NotSupported)),
+            |_, _| Err(error(ErrorCode::Other)),
+        );
+        assert!(outcome.is_err());
     }
 
     #[test]

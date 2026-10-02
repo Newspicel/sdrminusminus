@@ -36,14 +36,14 @@ describe("newNodeBody", () => {
     expect(defaultBody(empty, "scope")).toBeNull();
   });
 
-  it("starts a channel of the picked type, not recording", () => {
+  it("starts a channel of the picked type", () => {
     expect(newNodeBody(CATALOG, "channel", { channelType: "dmr" })).toEqual({
       kind: "channel",
-      data: { channel_type: "dmr", record_calls: false },
+      data: { channel_type: "dmr" },
     });
     expect(newNodeBody(CATALOG, "channel")).toEqual({
       kind: "channel",
-      data: { channel_type: "nfm", record_calls: false },
+      data: { channel_type: "nfm" },
     });
   });
 

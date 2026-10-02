@@ -2,7 +2,7 @@ use std::{
     f64::consts::TAU,
     sync::{
         Arc, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -50,6 +50,9 @@ fn an_array_runtime_starts_its_threads_and_joins_them_on_stop() {
     let quiet: Arc<dyn ArrayControl> = Arc::new(Quiet);
     let (setup, _writers, _ports, board) = setup(2, Arc::downgrade(&quiet), ArrayCalSource::Noise);
     let runtime = ArrayRuntime::start(setup).expect("a running array");
+    runtime
+        .control(ControlCommand::Start)
+        .expect("the controller listens");
     assert!(!runtime.is_finished());
     runtime
         .control(ControlCommand::NoiseSwitch(None))
@@ -57,6 +60,60 @@ fn an_array_runtime_starts_its_threads_and_joins_them_on_stop() {
     let exit = runtime.stop().expect("the aggregator hands its feeds back");
     assert_eq!(exit.feeds.len(), 2);
     assert!(board.alive());
+}
+
+#[derive(Default)]
+struct Counted {
+    asked: AtomicUsize,
+}
+
+impl ArrayControl for Counted {
+    fn switch_array_noise(
+        &self,
+        _node: &str,
+        _device_set: u32,
+        _on: bool,
+    ) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn step_array_gain(&self, _node: &str, _db: f64) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError> {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        Err(EngineError::ArrayNotFound(node.to_owned()))
+    }
+
+    fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn rebuild_processors(&self, _node: &str) -> Result<(), EngineError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn an_array_controller_reads_its_context_only_once_started() {
+    let counted = Arc::new(Counted::default());
+    let control: Arc<dyn ArrayControl> = counted.clone();
+    let (mut setup, _writers, _ports, _board) =
+        setup(2, Arc::downgrade(&control), ArrayCalSource::Noise);
+    setup.config.cal.warm_start = true;
+    let runtime = ArrayRuntime::start(setup).expect("a running array");
+    std::thread::sleep(controller::TICK * 5);
+    assert_eq!(counted.asked.load(Ordering::SeqCst), 0);
+    runtime
+        .control(ControlCommand::Start)
+        .expect("the controller listens");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while counted.asked.load(Ordering::SeqCst) == 0 {
+        assert!(Instant::now() < deadline, "the controller never started");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    drop(runtime.stop());
 }
 
 #[derive(Default)]
@@ -103,6 +160,9 @@ fn an_array_dropped_from_its_own_controller_stops_without_a_self_join() {
     let (setup, _writers, _ports, _board) =
         setup(2, Arc::downgrade(&control), ArrayCalSource::Noise);
     let runtime = ArrayRuntime::start(setup).expect("a running array");
+    runtime
+        .control(ControlCommand::Start)
+        .expect("the controller listens");
     *lock(&owner.runtime) = Some(runtime);
     let deadline = Instant::now() + Duration::from_secs(5);
     while !owner.dropped.load(Ordering::SeqCst) {
@@ -228,6 +288,9 @@ fn a_live_array_syncs_through_its_threads() {
     let quiet: Arc<dyn ArrayControl> = Arc::new(Quiet);
     let (setup, mut writers, _ports, board) = setup(2, Arc::downgrade(&quiet), ArrayCalSource::Off);
     let runtime = ArrayRuntime::start(setup).expect("a running array");
+    runtime
+        .control(ControlCommand::Start)
+        .expect("the controller listens");
     let pair = through_hardware(1 << 19, 3, 0.2, &[(0.0, 0.0, 0.0), (37.3, 0.0, 0.0)]);
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut index = 0u64;
@@ -298,6 +361,9 @@ fn a_noise_burst_calibrates_through_its_threads() {
         stream(&mut writers, &live, &mut index);
     }
     let runtime = ArrayRuntime::start(setup).expect("a running array");
+    runtime
+        .control(ControlCommand::Start)
+        .expect("the controller listens");
     runtime
         .control(ControlCommand::NoiseSwitch(Some(controller::NoiseSwitch {
             device_set: 1,

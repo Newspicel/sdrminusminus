@@ -37,11 +37,23 @@ async fn a_plain_dmr_channel_records_every_call_without_any_trunk_system() {
     let app = recording_router(dir.path());
     let mut snapshot =
         virtual_snapshot(&format!("file:{}", stem.display()), &[("dmr", "dmr", "iq")]);
-    for node in &mut snapshot.graph.nodes {
-        if let sdrmm_wire::NodeBody::Channel(channel) = &mut node.body {
-            channel.record_calls = true;
-        }
-    }
+    snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
+        id: "log".to_owned(),
+        body: sdrmm_wire::NodeBody::DecoderLog,
+        position: sdrmm_wire::Position { x: 0.0, y: 0.0 },
+        size: None,
+        label: None,
+    });
+    snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+        from: sdrmm_wire::PortRef {
+            node: "dmr".to_owned(),
+            port: "events".to_owned(),
+        },
+        to: sdrmm_wire::PortRef {
+            node: "log".to_owned(),
+            port: "events".to_owned(),
+        },
+    });
     let workspace = put_active_workspace(&app, &snapshot).await;
     let mut settings = sdrmm_wire::ChannelSettings::default_for("dmr").expect("dmr is built in");
     settings.frequency_hz = 145_000_000.0;

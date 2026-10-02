@@ -8,6 +8,7 @@ import type {
 } from "../lib/types";
 import { hex5 } from "./decoderLog";
 import {
+  callMode,
   candidateScore,
   dvChecksum,
   dvMode,
@@ -290,7 +291,7 @@ const DETAIL: {
 
   call: (c) => ({
     fields: fields([
-      ["Mode", c.mode.toUpperCase()],
+      ["Mode", callMode(c.mode)],
       [
         "Destination",
         c.destination == null

@@ -12,7 +12,7 @@ import {
   workspaceFacts,
 } from "./report";
 
-const REPO = "https://github.com/Newspicel/sdrminusminus";
+const REPO = "https://github.com/Newspicel/sdrmm";
 
 function diagnostics(overrides: Partial<DiagnosticsReport> = {}): DiagnosticsReport {
   return {

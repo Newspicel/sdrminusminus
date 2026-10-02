@@ -15,6 +15,7 @@ export interface ArrayStore {
   byNode: Readonly<Record<string, ArrayStatus>>;
   receivedAt: Readonly<Record<string, number>>;
   tuning: Readonly<Record<string, number>>;
+  tunes: Readonly<Record<string, PendingTune>>;
   observe: (event: ServerEvent) => void;
   seed: (statuses: readonly ArrayStatus[]) => void;
   retune: (node: string, centerHz: number) => void;
@@ -23,46 +24,105 @@ export interface ArrayStore {
   reset: () => void;
 }
 
+export interface PendingTune {
+  left: readonly number[];
+  settledAt: number | null;
+}
+
+export const STALE_REPORT_MS = 2000;
+
+type TuneState = Pick<ArrayStore, "tuning" | "tunes">;
+
+function dropTune(state: TuneState, node: string): TuneState {
+  return { tuning: omitNodes(state.tuning, [node]), tunes: omitNodes(state.tunes, [node]) };
+}
+
+function reportedStale(tune: PendingTune, centerHz: number, now: number): boolean {
+  return (
+    tune.settledAt === null ||
+    (tune.left.includes(centerHz) && now - tune.settledAt < STALE_REPORT_MS)
+  );
+}
+
+function confirmTunes(state: TuneState, statuses: readonly ArrayStatus[], now: number): TuneState {
+  let next = state;
+  for (const status of statuses) {
+    const wanted = next.tuning[status.node];
+    const tune = next.tunes[status.node];
+    if (wanted === undefined || tune === undefined) {
+      continue;
+    }
+    if (status.center_hz === wanted || !reportedStale(tune, status.center_hz, now)) {
+      next = dropTune(next, status.node);
+    }
+  }
+  return next;
+}
+
 export const useArrayStore = create<ArrayStore>((set) => ({
   byNode: {},
   receivedAt: {},
   tuning: {},
+  tunes: {},
   observe: (event) => {
     if (event.type !== "ArrayUpdate") {
       return;
     }
     const status = event.data.status;
+    const now = Date.now();
     set((state) => ({
+      ...confirmTunes(state, [status], now),
       byNode: { ...state.byNode, [status.node]: status },
-      receivedAt: { ...state.receivedAt, [status.node]: Date.now() },
+      receivedAt: { ...state.receivedAt, [status.node]: now },
     }));
   },
   seed: (statuses) => {
     const now = Date.now();
-    set({
+    set((state) => ({
+      ...confirmTunes(state, statuses, now),
       byNode: Object.fromEntries(statuses.map((status) => [status.node, status])),
       receivedAt: Object.fromEntries(statuses.map((status) => [status.node, now])),
-    });
+    }));
   },
   retune: (node, centerHz) =>
-    set((state) =>
-      state.tuning[node] === centerHz ? state : { tuning: { ...state.tuning, [node]: centerHz } },
-    ),
+    set((state) => {
+      const shown = shownCenterHz(state, node);
+      const left = state.tunes[node]?.left ?? [];
+      return {
+        tuning: { ...state.tuning, [node]: centerHz },
+        tunes: {
+          ...state.tunes,
+          [node]: {
+            left: shown === undefined || shown === centerHz ? left : [...left, shown],
+            settledAt: null,
+          },
+        },
+      };
+    }),
   tuned: (node, centerHz) =>
     set((state) => {
       const status = state.byNode[node];
-      const tuning = omitNodes(state.tuning, [node]);
-      return centerHz === null || status === undefined || status.center_hz === centerHz
-        ? { tuning }
-        : { tuning, byNode: { ...state.byNode, [node]: { ...status, center_hz: centerHz } } };
+      const tune = state.tunes[node];
+      if (centerHz === null || status === undefined || status.center_hz === centerHz) {
+        return dropTune(state, node);
+      }
+      return {
+        tuning: { ...state.tuning, [node]: centerHz },
+        tunes: {
+          ...state.tunes,
+          [node]: { left: tune?.left ?? [status.center_hz], settledAt: Date.now() },
+        },
+        byNode: { ...state.byNode, [node]: { ...status, center_hz: centerHz } },
+      };
     }),
   forget: (nodes) =>
     set((state) => ({
       byNode: omitNodes(state.byNode, nodes),
       receivedAt: omitNodes(state.receivedAt, nodes),
       tuning: omitNodes(state.tuning, nodes),
+      tunes: omitNodes(state.tunes, nodes),
     })),
-  reset: () => set({ byNode: {}, receivedAt: {}, tuning: {} }),
+  reset: () => set({ byNode: {}, receivedAt: {}, tuning: {}, tunes: {} }),
 }));
 
 export function shownCenterHz(

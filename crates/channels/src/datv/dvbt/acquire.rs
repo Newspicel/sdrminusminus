@@ -10,7 +10,7 @@ pub struct Timing {
 }
 
 fn metric(correlation: Complex<f32>, power: f32) -> f32 {
-    (2.0 * correlation.norm() / power.max(1e-12)).min(1.0)
+    (2.0 * correlation.norm_sqr().sqrt() / power.max(1e-12)).min(1.0)
 }
 
 pub fn correlation(iq: &[Complex<f32>], n: usize, g: usize, at: usize) -> (f32, f32) {

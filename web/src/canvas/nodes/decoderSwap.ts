@@ -7,7 +7,6 @@ import type {
   WorkspaceSnapshot,
 } from "../../lib/types";
 import { type GraphContext, nodeOf, patchNode, portsOf } from "../graph";
-import { keepsCalls } from "./callRecording";
 
 export const ANALOG_MODES = ["nfm", "wfm", "am", "ssb"] as const;
 
@@ -30,11 +29,7 @@ export function retypeChannel(
     node.kind === "channel"
       ? {
           ...node,
-          data: {
-            ...node.data,
-            channel_type: descriptor.type_id,
-            ...(keepsCalls(descriptor) ? {} : { record_calls: false }),
-          },
+          data: { ...node.data, channel_type: descriptor.type_id },
         }
       : node,
   );

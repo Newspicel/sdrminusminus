@@ -3,7 +3,7 @@ import { fromGitHub, type GitHubRelease, newest, parseNotes, renderSummary } fro
 
 const NOTES = `### Features
 
-- Faster DSP ([abc1234](https://github.com/Newspicel/sdrminusminus/commit/abc1234def))
+- Faster DSP ([abc1234](https://github.com/Newspicel/sdrmm/commit/abc1234def))
 
   Filters and resampling up to 3x.
 
@@ -12,12 +12,12 @@ const NOTES = `### Features
 - RTL-SDR: keep gain after reconnect
 - Airspy: \`bias tee\` sticks
 
-Container image: \`docker pull ghcr.io/newspicel/sdrminusminus:1.10.0\`
+Container image: \`docker pull ghcr.io/newspicel/sdrmm:1.10.0\`
 
 ## What's Changed
 * Something by @someone
 
-**Full Changelog**: https://github.com/Newspicel/sdrminusminus/compare/v1.9.0...v1.10.0
+**Full Changelog**: https://github.com/Newspicel/sdrmm/compare/v1.9.0...v1.10.0
 `;
 
 function release(
@@ -44,7 +44,7 @@ describe("parseNotes", () => {
 
   it("keeps continuation paragraphs and commit links", () => {
     expect(parseNotes(NOTES)[0]?.items[0]).toBe(
-      '<p>Faster DSP (<a href="https://github.com/Newspicel/sdrminusminus/commit/abc1234def">abc1234</a>)</p><p>Filters and resampling up to 3x.</p>',
+      '<p>Faster DSP (<a href="https://github.com/Newspicel/sdrmm/commit/abc1234def">abc1234</a>)</p><p>Filters and resampling up to 3x.</p>',
     );
   });
 

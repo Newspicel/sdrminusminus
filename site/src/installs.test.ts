@@ -3,7 +3,7 @@ import { INSTALLS, installFor } from "./installs";
 
 describe("installFor", () => {
   it("picks the package manager of the platform", () => {
-    expect(installFor("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe("winget");
+    expect(installFor("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe("container");
     expect(installFor("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)")).toBe("brew");
     expect(installFor("Mozilla/5.0 (X11; Linux x86_64)")).toBe("apt");
     expect(installFor("Mozilla/5.0 (X11; Fedora; Linux x86_64)")).toBe("dnf");

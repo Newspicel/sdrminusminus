@@ -15,6 +15,7 @@ The desktop and portable builds include these drivers:
 | [KrakenSDR, KerberosSDR](#krakensdr) | USB | Nothing |
 | [HackRF](#hackrf) | USB | Nothing |
 | [Airspy R2, Mini, HF+, HF+ Discovery](#airspy) | USB | Nothing |
+| [ESP32 with ESP-SDR](#esp-sdr) | USB serial | [ESP-SDR firmware](https://github.com/ESPARGOS/esp-sdr) |
 | [AntSDR](#antsdr) | Ethernet or USB | Nothing |
 | [ADALM-Pluto, other AD936x boards](#plutosdr-and-other-ad936x-boards) | USB or Ethernet | Nothing |
 | [SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2](#sdrplay) | USB | SDRplay API 3.15+ |
@@ -269,6 +270,28 @@ floor, and the band still shows it. Only the widest rates leave a spike at the c
 blocker. Images sit about 50 dB down; the vendor's adaptive IQ balance is not used.
 
 Tested on hardware provided by [Airspy](https://airspy.com). Thank you.
+
+## ESP-SDR
+
+An ESP32 running [ESP-SDR](https://github.com/ESPARGOS/esp-sdr) firmware receives with its Wi-Fi
+radio. Flash it with the [browser installer](https://espargos.net/espsdr/app/flash.html).
+
+It captures bursts, not a stream: 4096 samples by default, then a pause while they cross the serial
+link, about 0.1 s at 921.6 kBd. Longer bursts update the Scope less often. The timeline marks each
+gap.
+
+| Control | Does |
+|---|---|
+| Frequency | 100 MHz to 6 GHz in 1 MHz steps; only 2.4 GHz (and 5 GHz on C5) is reliable |
+| Rate | 80, 40 or 16 MS/s on ESP32, per chip otherwise |
+| RX | Gain index, not dB, or hardware AGC |
+| Filter | Analog bandwidth, or Auto for widest |
+| Bits | 8 or 10 bits per sample; 10 is slower over serial |
+| Burst | Samples per capture |
+
+SDR-- finds the firmware at 2 MBd, 1 MBd or 921.6 kBd. A CP2102 bridge cannot reach 1 MBd, so build
+the firmware with `CONFIG_ESP_SDR_UART_BAUD=921600` for those boards. On Linux, add the server's
+user to `dialout`.
 
 ## AntSDR
 

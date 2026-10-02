@@ -33,6 +33,7 @@ mod iridium;
 pub mod monitor;
 mod morse;
 mod navtex;
+pub mod neural;
 pub mod neural_denoise;
 mod nfm;
 pub mod passive_radar;
@@ -42,6 +43,7 @@ pub mod pose_clock;
 mod psk;
 mod radio_clock;
 mod rds;
+pub mod rnnoise;
 mod rtty;
 mod selcall;
 pub mod spatial_spectrum;
@@ -904,7 +906,7 @@ mod tests {
                 "am" => (10_000.0, 48_000.0),
                 "ssb" => (3_000.0, 48_000.0),
                 "wfm" => (200_000.0, 240_000.0),
-                "pocsag" => (12_500.0, 48_000.0),
+                "pocsag" => (12_500.0, 24_000.0),
                 "flex" | "ermes" => (12_500.0, 48_000.0),
                 "adsb" => (2_000_000.0, 2_400_000.0),
                 "ais" => (25_000.0, 48_000.0),
@@ -913,7 +915,7 @@ mod tests {
                 "morse" => (400.0, 8_000.0),
                 "cw_skimmer" => (24_000.0, 48_000.0),
                 "navtex" => (600.0, 8_000.0),
-                "acars" => (12_500.0, 48_000.0),
+                "acars" => (12_500.0, 24_000.0),
                 "atv" => (1_500_000.0, 16_000_000.0),
                 "sstv" => (1_600.0, 16_000.0),
                 "dab" => (1_536_000.0, 2_048_000.0),

@@ -23,14 +23,12 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag }}
-      URL: https://${{ github.repository_owner }}.github.io/packages
+      URL: https://downloads.sdrmm.com/packages
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER: npx --yes wrangler@4
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/packages
-          ssh-key: ${{ secrets.PACKAGES_SSH_KEY }}
-          path: site
       - name: Tools
         run: sudo apt-get install -y --no-install-recommends apt-utils createrepo-c rpm
       - name: Fetch packages
@@ -42,13 +40,19 @@ jobs:
           printf '%s\n' "$PACKAGES_GPG_KEY" | gpg --batch --import
           echo "KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_ENV"
       - name: Build repository
-        run: scripts/ci/linux-repo.sh packages site "$KEY" "${URL,,}"
-      - name: Publish
-        working-directory: site
+        run: scripts/ci/linux-repo.sh packages repo "$KEY" "$URL"
+      - name: Upload to downloads.sdrmm.com
+        working-directory: repo
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout --orphan next
-          git add -A
-          git commit -m "$TAG"
-          git push --force origin next:main
+          ../scripts/r2-upload.sh packages/deb/pool/main deb/pool/main/*.deb
+          mapfile -t repodata < <(find rpm/repodata -type f -not -name 'repomd.xml*')
+          ../scripts/r2-upload.sh packages/rpm/repodata "${repodata[@]}"
+          export CACHE_CONTROL="public, max-age=300"
+          ../scripts/r2-upload.sh packages/rpm rpm/*.rpm rpm/sdrmm.repo
+          mapfile -t dists < <(find deb/dists -type d | sort -r)
+          for dir in "${dists[@]}"; do
+            mapfile -t files < <(find "$dir" -maxdepth 1 -type f)
+            [ "${#files[@]}" -eq 0 ] || ../scripts/r2-upload.sh "packages/$dir" "${files[@]}"
+          done
+          ../scripts/r2-upload.sh packages/rpm/repodata rpm/repodata/repomd.xml rpm/repodata/repomd.xml.asc
+          ../scripts/r2-upload.sh packages key.asc key.gpg

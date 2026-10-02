@@ -103,7 +103,10 @@ mod tests {
 
     #[test]
     fn the_key_never_shows_in_debug_output() {
-        let pairing = RemotePairing::new("id".to_string(), "wss://x".to_string(), vec![42; 8]);
+        let pairing = RemotePairing {
+            paired_at: "2026-01-01T00:00:00Z".to_string(),
+            ..RemotePairing::new("id".to_string(), "wss://x".to_string(), vec![42; 8])
+        };
         assert!(!format!("{pairing:?}").contains("42"));
     }
 }

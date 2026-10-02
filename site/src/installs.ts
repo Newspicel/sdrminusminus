@@ -16,28 +16,21 @@ export const INSTALLS: Install[] = [
     lines: `brew install newspicel/tap/sdrmm-app
 
 <span class="p">or the server</span>
-brew install newspicel/tap/sdrmm
+brew install sdrmm
 brew services start sdrmm`,
-  },
-  {
-    id: "winget",
-    tab: "WinGet",
-    title: "WinGet",
-    note: "The Windows desktop app.",
-    lines: "winget install Newspicel.SDRminusminus",
   },
   {
     id: "apt",
     tab: "APT",
     title: "Debian and Ubuntu",
     note: "Signed APT repository for x86-64 and ARM64.",
-    lines: `curl -fsSL https://newspicel.github.io/packages/key.gpg \\
-  | sudo tee /usr/share/keyrings/sdrminusminus.gpg > /dev/null
-echo "deb [signed-by=/usr/share/keyrings/sdrminusminus.gpg] \\
-https://newspicel.github.io/packages/deb stable main" \\
-  | sudo tee /etc/apt/sources.list.d/sdrminusminus.list
+    lines: `curl -fsSL https://downloads.sdrmm.com/packages/key.gpg \\
+  | sudo tee /usr/share/keyrings/sdrmm.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/sdrmm.gpg] \\
+https://downloads.sdrmm.com/packages/deb stable main" \\
+  | sudo tee /etc/apt/sources.list.d/sdrmm.list
 sudo apt update
-sudo apt install sdrminusminus`,
+sudo apt install sdrmm-app`,
   },
   {
     id: "dnf",
@@ -45,8 +38,8 @@ sudo apt install sdrminusminus`,
     title: "Fedora",
     note: "Signed RPM repository for x86-64 and ARM64.",
     lines: `sudo dnf config-manager addrepo \\
-  --from-repofile=https://newspicel.github.io/packages/rpm/sdrminusminus.repo
-sudo dnf install sdrminusminus`,
+  --from-repofile=https://downloads.sdrmm.com/packages/rpm/sdrmm.repo
+sudo dnf install sdrmm-app`,
   },
   {
     id: "nix",
@@ -54,7 +47,7 @@ sudo dnf install sdrminusminus`,
     title: "Nix",
     note: "Flake package for x86-64 and ARM64 Linux, with SoapySDR modules selectable.",
     lines: `nix --extra-experimental-features 'nix-command flakes' \\
-  profile install github:Newspicel/sdrminusminus
+  profile install github:Newspicel/sdrmm
 sdrmm-desktop`,
     more: { href: "/docs/getting-started/install#nix", label: "NixOS module options" },
   },
@@ -63,8 +56,8 @@ sdrmm-desktop`,
     tab: "Container",
     title: "Container",
     note: "Keeps its database and recordings in a volume. Pass through the USB group that owns your radio.",
-    lines: `git clone https://github.com/Newspicel/sdrminusminus.git
-cd sdrminusminus
+    lines: `git clone https://github.com/Newspicel/sdrmm.git
+cd sdrmm
 docker compose up -d`,
     more: { href: "/docs/server/deployment", label: "Container setup, auth and HTTPS" },
   },
@@ -75,7 +68,7 @@ export function installFor(agent: string): string {
     return "brew";
   }
   if (/Windows/.test(agent)) {
-    return "winget";
+    return "container";
   }
   if (/Fedora|Red Hat|CentOS|Rocky|AlmaLinux|SUSE/i.test(agent)) {
     return "dnf";

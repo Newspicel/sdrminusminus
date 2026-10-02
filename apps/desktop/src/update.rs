@@ -4,7 +4,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
 const RELEASE: Option<&str> = option_env!("SDRMM_RELEASE");
-const RELEASES: &str = "https://github.com/Newspicel/sdrminusminus/releases";
+const RELEASES: &str = "https://github.com/Newspicel/sdrmm/releases";
 
 pub fn spawn(app: &AppHandle) {
     if let Some(skip) = skipped() {

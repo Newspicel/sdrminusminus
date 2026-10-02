@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: ghcr.io/newspicel/sdrminusminus
+  IMAGE_NAME: ghcr.io/newspicel/sdrmm
+  DOWNLOADS: https://downloads.sdrmm.com/releases
   SDRMM_RELEASE: ${{ github.ref_type == 'tag' && '1' || '' }}
 
 jobs:
@@ -48,14 +49,13 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          PACKAGES_SSH_KEY: ${{ secrets.PACKAGES_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
         run: |
           {
             echo "tap=${TAP_TOKEN:+true}"
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
-            if [ -n "$PACKAGES_SSH_KEY" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
+            echo "packages=${PACKAGES_GPG_KEY:+true}"
           } >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             for name in tap winget aur packages; do
@@ -74,13 +74,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: ./.github/actions/rust
-        with:
-          cache: ubuntu
-          save: false
-      - run: cargo xtask set-version ${{ needs.plan.outputs.version }}
+      - run: cargo xtask-release set-version ${{ needs.plan.outputs.version }}
       - if: github.ref_type == 'tag'
-        run: cargo xtask release-notes ${{ needs.plan.outputs.version }} --out release-notes.md
+        run: cargo xtask-release release-notes ${{ needs.plan.outputs.version }} --out release-notes.md
       - if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v7
         with:
@@ -257,7 +253,9 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.IMAGE_NAME }}
+            ghcr.io/newspicel/sdrminusminus
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -309,7 +307,7 @@ jobs:
       TAURI_ARGS: >-
         --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
         --config ${{ github.workspace }}/bundled.tauri.json
-        -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
+        -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,espsdr,ad936x,net-client,gpu-fft
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -396,10 +394,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/rust
-        with:
-          cache: ubuntu
-          save: false
       - uses: actions/download-artifact@v8
         with:
           path: bundles
@@ -409,7 +403,7 @@ jobs:
         env:
           TAG: ${{ github.event_name == 'schedule' && 'nightly' || github.ref_name }}
         run: |
-          cargo xtask updater-manifest \
+          cargo xtask-release updater-manifest \
             --version "${{ needs.version.outputs.version }}" \
             --dir bundles \
             --base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG" \
@@ -433,7 +427,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.version.outputs.version }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER: npx --yes wrangler@4
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -453,6 +451,15 @@ jobs:
         with:
           name: release-notes
           path: ${{ runner.temp }}/notes
+      - name: Upload to downloads.sdrmm.com
+        if: github.ref_type == 'tag'
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are needed to publish a release"
+            exit 1
+          fi
+          mapfile -t files < <(find artifacts -type f | sort)
+          scripts/r2-upload.sh "releases/$GITHUB_REF_NAME" "${files[@]}"
       - name: Publish release
         if: github.ref_type == 'tag'
         run: |
@@ -465,6 +472,22 @@ jobs:
             --generate-notes \
             --notes-file "$notes" \
             "${files[@]}"
+      - name: Point downloads.sdrmm.com at this release
+        if: github.ref_type == 'tag'
+        run: |
+          sed "s#https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME#$DOWNLOADS/$GITHUB_REF_NAME#g" \
+            artifacts/latest.json > "$RUNNER_TEMP/latest.json"
+          find artifacts -type f -printf '%f\t%s\n' | sort |
+            jq -R -n \
+              --arg tag "$GITHUB_REF_NAME" \
+              --arg published "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --arg notes "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+              '{tag: $tag, name: $tag, published_at: $published, notes: $notes,
+                assets: [inputs | split("\t") | {name: .[0], size: (.[1] | tonumber)}]}' \
+              > "$RUNNER_TEMP/release.json"
+          printf '%s\n' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/latest"
+          CACHE_CONTROL="public, max-age=300" scripts/r2-upload.sh releases \
+            "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/latest.json" "$RUNNER_TEMP/latest"
       - name: Remove previous nightly
         if: github.event_name == 'schedule'
         run: gh release delete nightly --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
@@ -487,10 +510,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/rust
-        with:
-          cache: ubuntu
-          save: false
       - name: Fetch checksums
         env:
           GH_TOKEN: ${{ github.token }}
@@ -500,9 +519,9 @@ jobs:
           repository: ${{ github.repository_owner }}/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
-      - name: Write formula and cask
+      - name: Write cask
         run: |
-          cargo xtask homebrew-tap \
+          cargo xtask-release homebrew-tap \
             --version "${{ needs.version.outputs.version }}" \
             --sums SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
@@ -512,10 +531,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm --quiet --ignore-unmatch Casks/sdrminusminus.rb
-          git add Formula/sdrmm.rb Casks/sdrmm-app.rb cask_renames.json
+          git rm --quiet --ignore-unmatch Casks/sdrminusminus.rb Formula/sdrmm.rb
+          git add Casks/sdrmm-app.rb cask_renames.json tap_migrations.json
           git diff --cached --quiet && exit 0
-          git commit -m "sdrmm ${{ needs.version.outputs.version }}"
+          git commit -m "sdrmm-app ${{ needs.version.outputs.version }}"
           git push
 
   winget:
@@ -530,7 +549,7 @@ jobs:
       - name: Listed
         id: listed
         run: |
-          if gh api repos/microsoft/winget-pkgs/contents/manifests/n/Newspicel/SDRminusminus --silent; then
+          if gh api repos/microsoft/winget-pkgs/contents/manifests/n/Newspicel/SDRmm --silent; then
             echo "listed=true" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Not in winget-pkgs yet, skipping"
@@ -545,8 +564,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
-          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
-          "$RUNNER_TEMP/komac" update Newspicel.SDRminusminus \
+          base="$DOWNLOADS/$GITHUB_REF_NAME"
+          "$RUNNER_TEMP/komac" update Newspicel.SDRmm \
             --version "$VERSION" \
             --urls "$base/SDR--_${VERSION}_x64-setup.exe" "$base/SDR--_${VERSION}_arm64-setup.exe" \
             --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
@@ -559,20 +578,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/rust
-        with:
-          cache: ubuntu
-          save: false
       - name: Fetch checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
+        run: curl -fsSLO "$DOWNLOADS/$GITHUB_REF_NAME/SHA256SUMS"
       - name: Write PKGBUILDs
         run: |
-          cargo xtask aur \
+          cargo xtask-release aur \
             --version "${{ needs.version.outputs.version }}" \
             --sums SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
             --out "$RUNNER_TEMP/generated"
       - name: Push to AUR
         env:
@@ -585,7 +597,7 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for pkg in sdrminusminus-bin sdrmm-bin; do
+          for pkg in sdrmm-app-bin sdrmm-bin; do
             git clone "ssh://aur@aur.archlinux.org/$pkg.git" "$RUNNER_TEMP/$pkg"
             cp "$RUNNER_TEMP/generated/$pkg/PKGBUILD" "$RUNNER_TEMP/generated/$pkg/.SRCINFO" "$RUNNER_TEMP/$pkg/"
             git -C "$RUNNER_TEMP/$pkg" add PKGBUILD .SRCINFO

@@ -51,7 +51,8 @@ pub use array::{
 };
 pub use audio::{
     AudioAgcMode, AudioFilterSettings, AudioFxNode, AudioProcessing, AudioRoute,
-    ClickRemovalSettings, DenoiseMode, DenoiseSettings, MAX_AUDIO_FX_CHAIN, MAX_AUDIO_NOTCHES,
+    ClickRemovalSettings, DenoiseMode, DenoiseModel, DenoiseModelState, DenoiseModelStatus,
+    DenoiseModelsResponse, DenoiseSettings, MAX_AUDIO_FX_CHAIN, MAX_AUDIO_NOTCHES,
     MAX_AUDIO_TONE_HZ, MAX_BLANKER_THRESHOLD, MAX_CLICK_THRESHOLD, MAX_NOTCH_WIDTH_HZ,
     MIN_AUDIO_TONE_HZ, MIN_BLANKER_THRESHOLD, MIN_CLICK_THRESHOLD, MIN_NOTCH_WIDTH_HZ,
     NoiseBlankerSettings, NotchSettings,

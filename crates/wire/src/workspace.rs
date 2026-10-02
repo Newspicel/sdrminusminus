@@ -469,7 +469,6 @@ mod tests {
                     "ch",
                     NodeBody::Channel(ChannelNode {
                         channel_type: "am".to_owned(),
-                        record_calls: false,
                         tuning_locked: false,
                     }),
                 ),

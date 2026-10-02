@@ -20,7 +20,6 @@ fn channel(id: &str, ty: &str) -> PatchNode {
         id,
         NodeBody::Channel(ChannelNode {
             channel_type: ty.to_owned(),
-            record_calls: false,
             tuning_locked: false,
         }),
     )
@@ -96,45 +95,30 @@ fn descriptors() -> Vec<ChannelDescriptor> {
     ]
 }
 
-fn recording_calls(id: &str, ty: &str, on: bool) -> PatchNode {
-    node(
-        id,
-        NodeBody::Channel(ChannelNode {
-            channel_type: ty.to_owned(),
-            record_calls: on,
-            tuning_locked: false,
-        }),
-    )
-}
-
 #[test]
-fn a_voice_channel_may_record_its_calls() {
-    let graph = PatchGraph {
-        nodes: vec![recording_calls("dmr", "dmr", true)],
-        edges: Vec::new(),
+fn a_channel_offers_events_when_it_decodes_or_carries_audio() {
+    let events = ports_for("channel")
+        .into_iter()
+        .find(|port| port.port_type == PortType::Events)
+        .expect("events port");
+    let analog = ChannelDescriptor {
+        type_id: "nfm".to_owned(),
+        has_audio: true,
+        ..ChannelDescriptor::default()
     };
-    assert!(graph.validate_against(&descriptors()).is_ok());
-}
-
-#[test]
-fn a_channel_that_carries_no_voice_cannot_record_calls() {
-    let graph = PatchGraph {
-        nodes: vec![recording_calls("pager", "adsb", true)],
-        edges: Vec::new(),
+    let silent = ChannelDescriptor {
+        type_id: "scope".to_owned(),
+        has_audio: false,
+        ..ChannelDescriptor::default()
     };
-    assert_eq!(
-        graph.validate_against(&descriptors()),
-        Err(PatchError::NodeSettings("pager".to_owned()))
-    );
-}
-
-#[test]
-fn recording_nothing_is_always_allowed() {
-    let graph = PatchGraph {
-        nodes: vec![recording_calls("pager", "adsb", false)],
-        edges: Vec::new(),
-    };
-    assert!(graph.validate_against(&descriptors()).is_ok());
+    for descriptor in descriptors().iter().chain([&analog]) {
+        assert!(
+            events.applies_to(Some(PortBacking::Channel(descriptor))),
+            "{}",
+            descriptor.type_id
+        );
+    }
+    assert!(!events.applies_to(Some(PortBacking::Channel(&silent))));
 }
 
 #[test]
@@ -179,7 +163,7 @@ fn an_event_filter_passes_events_through_and_bounds_its_lists() {
 fn a_channel_can_reach_an_event_output_through_a_filter() {
     let graph = PatchGraph {
         nodes: vec![
-            recording_calls("dmr", "dmr", true),
+            channel("dmr", "dmr"),
             node("filter", NodeBody::EventFilter(EventFilterNode::default())),
             node(
                 "output",
@@ -235,7 +219,6 @@ fn topology_ignores_where_a_face_sits_and_what_it_is_called() {
     let mut retyped = graph.clone();
     retyped.nodes[1].body = NodeBody::Channel(ChannelNode {
         channel_type: "am".to_owned(),
-        record_calls: false,
         tuning_locked: false,
     });
     assert!(!graph.same_topology(&retyped));
@@ -297,7 +280,6 @@ fn a_channel_node_saved_before_the_frequency_lock_existed_still_loads_unlocked()
 
     let locked = NodeBody::Channel(ChannelNode {
         channel_type: channel.channel_type,
-        record_calls: false,
         tuning_locked: true,
     });
     let json = serde_json::to_string(&locked).expect("serialize the body");
@@ -470,22 +452,6 @@ fn an_event_output_accepts_decoder_and_completed_call_events() {
         edges: vec![edge(("carrier", "events"), ("output", "events"))],
     };
     decoded.validate().expect("decoded events");
-}
-
-#[test]
-fn a_dmr_trunk_records_calls_by_default_and_can_be_told_not_to() {
-    assert!(DmrTrunkNode::default().record_calls);
-    let graph = PatchGraph {
-        nodes: vec![node(
-            "system",
-            NodeBody::DmrTrunk(DmrTrunkNode {
-                record_calls: false,
-                ..DmrTrunkNode::default()
-            }),
-        )],
-        edges: Vec::new(),
-    };
-    assert!(graph.validate().is_ok());
 }
 
 #[test]
@@ -1205,7 +1171,6 @@ fn an_unbacked_node_expands_to_stream_zero_only() {
 
     let body = NodeBody::Channel(ChannelNode {
         channel_type: "nfm".to_owned(),
-        record_calls: false,
         tuning_locked: false,
     });
     let nfm = &descriptors()[0];
@@ -1214,7 +1179,7 @@ fn an_unbacked_node_expands_to_stream_zero_only() {
         .into_iter()
         .map(|port| port.name)
         .collect();
-    assert_eq!(names, vec!["iq", "control", "baseband", "audio"]);
+    assert_eq!(names, vec!["iq", "control", "baseband", "audio", "events"]);
 }
 
 #[test]
@@ -1222,7 +1187,6 @@ fn a_channels_outputs_follow_what_its_type_produces() {
     let names = |descriptor: &ChannelDescriptor| {
         NodeBody::Channel(ChannelNode {
             channel_type: descriptor.type_id.clone(),
-            record_calls: false,
             tuning_locked: false,
         })
         .ports_with(Some(PortBacking::Channel(descriptor)))
@@ -1939,7 +1903,6 @@ fn a_satellite_drives_many_decoders_but_a_decoder_answers_to_one_controller() {
             id,
             NodeBody::Channel(ChannelNode {
                 channel_type: "nfm".to_owned(),
-                record_calls: false,
                 tuning_locked: false,
             }),
         )

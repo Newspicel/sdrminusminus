@@ -166,7 +166,6 @@ mod tests {
             "channel:adsb",
             NodeBody::Channel(ChannelNode {
                 channel_type: "adsb".to_owned(),
-                record_calls: false,
                 tuning_locked: false,
             }),
         ));

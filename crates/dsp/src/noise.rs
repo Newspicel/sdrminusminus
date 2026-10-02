@@ -496,7 +496,7 @@ impl SpectralDenoiser {
 fn exponential_integral(x: f32) -> f32 {
     let x = f64::from(x);
     let value = if x < 1.0 {
-        -x.ln() - 0.577_215_664_901_532_9
+        -x.ln() - std::f64::consts::EULER_GAMMA
             + x * (0.999_991_93
                 + x * (-0.249_910_55 + x * (0.055_199_68 + x * (-0.009_760_04 + x * 0.001_078_57))))
     } else {

@@ -5,8 +5,8 @@ mod common;
 use std::{path::Path, time::Duration};
 
 use common::array::{
-    ARRAY, Bench, KRAKEN, LOCK_WAIT, WAIT, calibrated, kraken_array, lanes, status,
-    wait_calibrated, wait_solve_after, wait_status, wrap_deg,
+    ARRAY, Bench, KRAKEN, LOCK_WAIT, WAIT, calibrated, df, kraken_array, lanes, processor_status,
+    status, wait_calibrated, wait_solve_after, wait_status, wrap_deg,
 };
 use sdrmm_device_virtual::ReportedGap;
 use sdrmm_recorder::{lane_stem, meta_path};
@@ -138,7 +138,17 @@ fn a_finished_replay_settles_to_its_recorded_calibration() {
     std::thread::sleep(TAIL);
     stop(&bench);
     replay(&bench, &stem);
+    bench.engine.apply_processor(df("df")).unwrap();
     let recorded = wait_calibrated(&bench.engine, LOCK_WAIT);
+    wait_status(
+        &bench.engine,
+        "the replay past its noise window",
+        WAIT,
+        |now| {
+            let df = processor_status(now, "df");
+            df.running && df.gated.is_none()
+        },
+    );
     bench.engine.calibrate_array(ARRAY).unwrap();
     wait_status(
         &bench.engine,

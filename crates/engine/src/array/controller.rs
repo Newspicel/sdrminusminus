@@ -60,6 +60,7 @@ pub(crate) enum ControlCommand {
     Recalibrate,
     Resync { coarse: bool },
     NoiseSwitch(Option<NoiseSwitch>),
+    Start,
     Stop,
 }
 
@@ -115,33 +116,42 @@ pub(crate) fn spawn_controller(
 
 fn serve(io: ControllerIo) {
     let (mut controller, commands) = Controller::new(io, Instant::now());
-    if let Ok(first) = commands.recv_timeout(TICK) {
-        for command in std::iter::once(first).chain(std::iter::from_fn(|| commands.try_recv().ok()))
-        {
-            if !controller.command(command, Instant::now()) {
-                controller.stop();
-                return;
-            }
+    if await_start(&mut controller, &commands) {
+        controller.start(Instant::now());
+        serve_started(&mut controller, &commands);
+    }
+    controller.stop();
+}
+
+fn await_start(controller: &mut Controller, commands: &mpsc::Receiver<ControlCommand>) -> bool {
+    while let Ok(command) = commands.recv() {
+        if matches!(command, ControlCommand::Start) {
+            return true;
+        }
+        if !controller.command(command, Instant::now()) {
+            return false;
         }
     }
-    controller.start(Instant::now());
-    'serving: loop {
+    false
+}
+
+fn serve_started(controller: &mut Controller, commands: &mpsc::Receiver<ControlCommand>) {
+    loop {
         let first = match commands.recv_timeout(TICK) {
             Ok(command) => Some(command),
             Err(RecvTimeoutError::Timeout) => None,
-            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Disconnected) => return,
         };
         for command in first
             .into_iter()
             .chain(std::iter::from_fn(|| commands.try_recv().ok()))
         {
             if !controller.command(command, Instant::now()) {
-                break 'serving;
+                return;
             }
         }
         controller.poll(Instant::now());
     }
-    controller.stop();
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -317,6 +327,7 @@ impl Controller {
                 }
             }
             ControlCommand::NoiseSwitch(switch) => self.noise_switch(switch),
+            ControlCommand::Start => {}
             ControlCommand::Stop => return false,
         }
         true

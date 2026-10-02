@@ -16,8 +16,8 @@ additional-css = ["tokens.css", "custom.css"]
 additional-js = ["menu.js"]
 no-section-label = true
 smart-punctuation = false
-git-repository-url = "https://github.com/Newspicel/sdrminusminus"
-edit-url-template = "https://github.com/Newspicel/sdrminusminus/edit/main/docs/{path}"
+git-repository-url = "https://github.com/Newspicel/sdrmm"
+edit-url-template = "https://github.com/Newspicel/sdrmm/edit/main/docs/{path}"
 site-url = "/docs/"
 
 [output.html.fold]

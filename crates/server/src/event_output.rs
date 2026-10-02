@@ -7,9 +7,10 @@ use rumqttc::{
     PublishOptions, Transport,
 };
 use sdrmm_engine::Engine;
+use sdrmm_recorder::{AUDIO_SUFFIX, audio_stem, save_unique};
 use sdrmm_wire::{
-    DecodedRecord, DecoderEvent, EventOutputTarget, NodeBody, ServerEvent, StateScope, VoiceCall,
-    WebhookFormat,
+    DecodedRecord, DecoderEvent, EventOutputTarget, NodeBody, ServerEvent, StateScope,
+    Transmission, VoiceCall, WebhookFormat,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -64,6 +65,7 @@ struct OutputMessage {
     payload: serde_json::Value,
     transaction: String,
     audio: Option<OutputAudio>,
+    audio_error: Option<String>,
     facts: EventFacts,
 }
 
@@ -95,8 +97,14 @@ impl std::fmt::Display for DeliveryError {
 
 struct OutputAudio {
     bytes: Bytes,
-    filename: String,
+    stem: String,
     duration_ms: u64,
+}
+
+impl OutputAudio {
+    fn filename(&self) -> String {
+        format!("{}{AUDIO_SUFFIX}", self.stem)
+    }
 }
 
 pub(crate) async fn run(
@@ -123,7 +131,7 @@ pub(crate) async fn run(
         }
     };
     let (delivery_tx, delivery_rx) = mpsc::channel(DELIVERY_QUEUE);
-    let worker = tokio::spawn(deliver_all(client, delivery_rx));
+    let worker = tokio::spawn(deliver_all(client, delivery_rx, engine.clone()));
     let mut routing = load_routing(store.clone()).await;
     let mut tunnels = tunnel::Outputs::default();
     tunnels.configure(&routing.bindings);
@@ -216,12 +224,22 @@ fn decoded_deliveries(
             )
         })
         .filter(|binding| record.sinks.contains(&binding.node))
+        .filter(|binding| {
+            !matches!(binding.target, EventOutputTarget::Recordings) || carries_audio(&record.event)
+        })
         .map(|binding| match &record.event {
             DecoderEvent::Call(call) => Delivery {
                 node: binding.node.clone(),
                 target: binding.target.clone(),
                 event: format!("call {}", call.id),
-                message: call_message(&binding.node, record, call, calls.audio(call.id)),
+                message: call_message(
+                    &binding.node,
+                    record,
+                    call,
+                    call.audio
+                        .as_ref()
+                        .and_then(|audio| calls.event_audio(audio)),
+                ),
             },
             DecoderEvent::Transmission(transmission) => {
                 let mut message = decoded_message(&binding.node, record, sequence);
@@ -231,7 +249,7 @@ fn decoded_deliveries(
                     .and_then(|audio| calls.event_audio(audio))
                     .map(|bytes| OutputAudio {
                         bytes,
-                        filename: format!("transmission-{}.wav", transmission.id),
+                        stem: transmission_stem(record, transmission),
                         duration_ms: transmission.duration_ms,
                     });
                 Delivery {
@@ -249,6 +267,40 @@ fn decoded_deliveries(
             },
         })
         .collect()
+}
+
+fn carries_audio(event: &DecoderEvent) -> bool {
+    match event {
+        DecoderEvent::Call(call) => call.audio.is_some() || call.audio_error.is_some(),
+        DecoderEvent::Transmission(transmission) => transmission.audio.is_some(),
+        _ => false,
+    }
+}
+
+fn started(at: &str) -> jiff::Timestamp {
+    at.parse().unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+}
+
+fn call_stem(call: &VoiceCall) -> String {
+    let mut stem = audio_stem(started(&call.started_at), &call.mode_label(), call.freq_hz);
+    if let Some(id) = call.destination {
+        let prefix = if call.group_call == Some(true) {
+            "TG"
+        } else {
+            "ID"
+        };
+        stem.push_str(&format!("_{prefix}{id}"));
+    }
+    stem
+}
+
+fn transmission_stem(record: &DecodedRecord, transmission: &Transmission) -> String {
+    let mode = transmission
+        .decoder
+        .as_deref()
+        .unwrap_or(transmission.signal.modulation.label());
+    let at = transmission.started_at.as_deref().unwrap_or(&record.at);
+    audio_stem(started(at), mode, record.freq_hz)
 }
 
 async fn load_routing(store: Arc<Store>) -> Routing {
@@ -295,12 +347,21 @@ fn resolve(store: &Store) -> Result<Routing, crate::StoreError> {
     Ok(Routing { bindings })
 }
 
-async fn deliver_all(client: Client, mut deliveries: mpsc::Receiver<Delivery>) {
+async fn deliver_all(
+    client: Client,
+    mut deliveries: mpsc::Receiver<Delivery>,
+    engine: std::sync::Weak<Engine>,
+) {
     let mut databases = postgres::Connections::default();
     let mut pending = Vec::with_capacity(DELIVERY_QUEUE);
     while deliveries.recv_many(&mut pending, DELIVERY_QUEUE).await > 0 {
         for batch in pending.chunk_by(same_batch) {
-            deliver_with_retries(&client, &mut databases, batch).await;
+            let outputs = Outputs {
+                client: &client,
+                databases: &mut databases,
+                engine: &engine,
+            };
+            deliver_with_retries(outputs, batch).await;
         }
         pending.clear();
     }
@@ -321,16 +382,18 @@ fn batch_name(batch: &[Delivery]) -> String {
     }
 }
 
-async fn deliver_with_retries(
-    client: &Client,
-    databases: &mut postgres::Connections,
-    batch: &[Delivery],
-) {
+struct Outputs<'a> {
+    client: &'a Client,
+    databases: &'a mut postgres::Connections,
+    engine: &'a std::sync::Weak<Engine>,
+}
+
+async fn deliver_with_retries(mut outputs: Outputs<'_>, batch: &[Delivery]) {
     let Some(first) = batch.first() else {
         return;
     };
     for attempt in 1..=MAX_DELIVERY_ATTEMPTS {
-        match deliver(client, databases, batch).await {
+        match deliver(&mut outputs, batch).await {
             Ok(()) => {
                 tracing::info!(
                     output = %first.node,
@@ -361,15 +424,13 @@ async fn deliver_with_retries(
     }
 }
 
-async fn deliver(
-    client: &Client,
-    databases: &mut postgres::Connections,
-    batch: &[Delivery],
-) -> Result<(), DeliveryError> {
+async fn deliver(outputs: &mut Outputs<'_>, batch: &[Delivery]) -> Result<(), DeliveryError> {
     let Some(delivery) = batch.first() else {
         return Ok(());
     };
+    let client = outputs.client;
     match &delivery.target {
+        EventOutputTarget::Recordings => save_recording(outputs.engine, &delivery.message).await,
         EventOutputTarget::Tunnel { .. } | EventOutputTarget::Beast { .. } => Err(
             DeliveryError::Failed("Network streams use the dedicated writer".to_owned()),
         ),
@@ -411,7 +472,8 @@ async fn deliver(
             .await
         }
         EventOutputTarget::Postgres { .. } => {
-            databases
+            outputs
+                .databases
                 .insert(&delivery.node, &delivery.target, batch)
                 .await
         }
@@ -434,6 +496,32 @@ async fn deliver(
             .await
         }
     }
+}
+
+async fn save_recording(
+    engine: &std::sync::Weak<Engine>,
+    message: &OutputMessage,
+) -> Result<(), DeliveryError> {
+    let Some(audio) = &message.audio else {
+        let reason = message.audio_error.as_deref().unwrap_or("no audio");
+        return Err(DeliveryError::Failed(format!("nothing to save: {reason}")));
+    };
+    let engine = engine
+        .upgrade()
+        .ok_or_else(|| DeliveryError::Failed("the engine has stopped".to_owned()))?;
+    let dir = engine
+        .audio_recordings_dir()
+        .ok_or_else(|| DeliveryError::Failed("no recordings directory configured".to_owned()))?;
+    let (stem, bytes) = (audio.stem.clone(), audio.bytes.clone());
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir)?;
+        save_unique(&dir, &stem, &bytes)
+    })
+    .await
+    .map_err(|error| DeliveryError::Failed(format!("saving audio stopped: {error}")))?
+    .map_err(|error| DeliveryError::Failed(format!("saving audio failed: {error}")))?;
+    engine.emit_scope(StateScope::Recordings);
+    Ok(())
 }
 
 async fn send_webhook(
@@ -480,7 +568,7 @@ async fn send_discord(
     let response = match &message.audio {
         Some(audio) => {
             let part = multipart::Part::bytes(audio.bytes.to_vec())
-                .file_name(audio.filename.clone())
+                .file_name(audio.filename())
                 .mime_str("audio/wav")
                 .map_err(|error| {
                     DeliveryError::Failed(format!("Discord audio attachment: {error}"))
@@ -521,7 +609,7 @@ async fn send_matrix(
                 .map_err(|error| DeliveryError::Failed(format!("Matrix upload URL: {error}")))?;
             upload_url
                 .query_pairs_mut()
-                .append_pair("filename", &audio.filename);
+                .append_pair("filename", &audio.filename());
             let response = client
                 .post(upload_url)
                 .bearer_auth(target.access_token)
@@ -539,7 +627,7 @@ async fn send_matrix(
             json!({
                 "msgtype": "m.audio",
                 "body": message.body,
-                "filename": audio.filename,
+                "filename": audio.filename(),
                 "url": uploaded.content_uri,
                 "info": {
                     "duration": audio.duration_ms,
@@ -717,19 +805,17 @@ fn set_query(url: &mut Url, name: &str, value: &str) {
 }
 
 fn call_parts(call: &VoiceCall) -> Vec<String> {
-    let mut parts = vec![format!("{} call", call.mode.label())];
-    parts.push(call.destination.map_or_else(
-        || "to unknown".to_owned(),
-        |id| match call.group_call {
+    let mut parts = vec![format!("{} call", call.mode_label())];
+    if let Some(id) = call.destination {
+        parts.push(match call.group_call {
             Some(true) => format!("talkgroup {id}"),
             Some(false) => format!("radio {id}"),
             None => format!("to {id}"),
-        },
-    ));
-    parts.push(
-        call.source
-            .map_or_else(|| "from unknown".to_owned(), |id| format!("from {id}")),
-    );
+        });
+    }
+    if let Some(id) = call.source {
+        parts.push(format!("from {id}"));
+    }
     if let Some(slot) = call.slot {
         parts.push(format!("TS{slot}"));
     }
@@ -849,9 +935,10 @@ fn call_message(
         transaction: call_transaction(output_node, call),
         audio: audio.map(|bytes| OutputAudio {
             bytes,
-            filename: format!("{}-call-{}.wav", call.mode.label().to_lowercase(), call.id),
+            stem: call_stem(call),
             duration_ms: call.duration_ms,
         }),
+        audio_error: call.audio_error.clone(),
     }
 }
 
@@ -865,6 +952,7 @@ fn decoded_message(output_node: &str, record: &DecodedRecord, sequence: u64) -> 
         body,
         transaction: decoded_transaction(output_node, record, sequence),
         audio: None,
+        audio_error: None,
     }
 }
 

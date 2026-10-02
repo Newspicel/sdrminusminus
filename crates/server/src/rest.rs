@@ -42,6 +42,7 @@ mod audio_recordings;
 mod capture;
 mod cps;
 mod decoderlog;
+mod denoise;
 mod devices;
 mod fusion;
 mod info;
@@ -449,4 +450,5 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .merge(missions::routes())
         .merge(survey::routes())
         .merge(fusion::routes())
+        .merge(denoise::routes())
 }

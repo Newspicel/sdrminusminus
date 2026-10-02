@@ -11,7 +11,10 @@ pub struct MskDetector {
     sample_rate: f64,
     centre_hz: f64,
     bit_advance: f64,
-    phase: f64,
+    phasors: [Complex<f64>; 2],
+    rotation: Complex<f64>,
+    advance: Complex<f64>,
+    step: f64,
     clock: f64,
     quarter: u8,
     offset_hz: f64,
@@ -38,11 +41,16 @@ impl MskDetector {
                 (TAU * baud / 4.0 * t).cos().max(0.0) as f32
             })
             .collect();
+        let step = TAU * centre_hz / sample_rate;
+        let rotation = Complex::from_polar(1.0, -step);
         Self {
             sample_rate,
             centre_hz,
             bit_advance: TAU * centre_hz / baud,
-            phase: 0.0,
+            phasors: [rotation, rotation * rotation],
+            rotation,
+            advance: rotation * rotation,
+            step,
             clock: 0.0,
             quarter: 0,
             offset_hz: 0.0,
@@ -53,34 +61,59 @@ impl MskDetector {
     }
 
     pub fn reset(&mut self) {
-        self.phase = 0.0;
         self.clock = 0.0;
         self.quarter = 0;
-        self.offset_hz = 0.0;
+        self.retune(0.0);
+        self.phasors = [self.rotation, self.advance];
         self.ring.fill(Complex::new(0.0, 0.0));
         self.oldest = 0;
     }
 
-    pub fn push(&mut self, sample: f32) -> Option<bool> {
-        let step = TAU * (self.centre_hz + self.offset_hz) / self.sample_rate;
-        self.phase = (self.phase + step).rem_euclid(TAU);
-        let (sin, cos) = self.phase.sin_cos();
-        self.ring[self.oldest] = Complex::new(sample * cos as f32, -sample * sin as f32);
-        self.oldest = (self.oldest + 1) % self.ring.len();
-        self.clock += step;
-        if self.clock < self.bit_advance - step / 2.0 {
-            return None;
+    pub fn process(&mut self, samples: &[f32], bits: &mut Vec<bool>) {
+        let mut phasors = self.phasors;
+        let mut clock = self.clock;
+        let mut oldest = self.oldest;
+        for &sample in samples {
+            let oscillator = phasors[0];
+            phasors = [phasors[1], oscillator * self.advance];
+            let mixed = oscillator * f64::from(sample);
+            self.ring[oldest] = Complex::new(mixed.re as f32, mixed.im as f32);
+            oldest += 1;
+            if oldest == self.ring.len() {
+                oldest = 0;
+            }
+            clock += self.step;
+            if clock >= self.bit_advance - self.step / 2.0 {
+                clock -= self.bit_advance;
+                self.oldest = oldest;
+                let bit = self.decide(self.matched());
+                bits.push(bit);
+                let oscillator = oscillator / oscillator.norm();
+                phasors = [oscillator * self.rotation, oscillator * self.advance];
+            }
         }
-        self.clock -= self.bit_advance;
-        Some(self.decide(self.matched()))
+        self.phasors = phasors;
+        self.clock = clock;
+        self.oldest = oldest;
+    }
+
+    fn retune(&mut self, offset_hz: f64) {
+        self.offset_hz = offset_hz;
+        self.step = TAU * (self.centre_hz + offset_hz) / self.sample_rate;
+        self.rotation = Complex::from_polar(1.0, -self.step);
+        self.advance = self.rotation * self.rotation;
     }
 
     fn matched(&self) -> Complex<f32> {
-        let mut v = Complex::new(0.0f32, 0.0);
-        for (j, &tap) in self.taps.iter().enumerate() {
-            v += tap * self.ring[(j + self.oldest) % self.ring.len()];
-        }
-        v / (v.norm() + 1e-8)
+        let (newer, older) = self.ring.split_at(self.oldest);
+        let v = older
+            .iter()
+            .chain(newer)
+            .zip(&self.taps)
+            .fold(Complex::new(0.0f32, 0.0), |v, (&sample, &tap)| {
+                v + sample * tap
+            });
+        v / (v.norm_sqr().sqrt() + 1e-8)
     }
 
     fn decide(&mut self, v: Complex<f32>) -> bool {
@@ -91,8 +124,9 @@ impl MskDetector {
         };
         let bit = if self.quarter & 2 == 2 { -axis } else { axis } > 0.0;
         self.quarter = self.quarter.wrapping_add(1);
-        self.offset_hz =
-            TRACK_POLE * self.offset_hz + (1.0 - TRACK_POLE) * TRACK_RANGE_HZ * f64::from(error);
+        self.retune(
+            TRACK_POLE * self.offset_hz + (1.0 - TRACK_POLE) * TRACK_RANGE_HZ * f64::from(error),
+        );
         bit
     }
 
@@ -152,7 +186,9 @@ mod tests {
 
     fn detect(samples: &[f32]) -> Vec<bool> {
         let mut det = MskDetector::new(RATE, CENTRE_HZ, BAUD);
-        samples.iter().filter_map(|&s| det.push(s)).collect()
+        let mut bits = Vec::new();
+        det.process(samples, &mut bits);
+        bits
     }
 
     fn errors_after_settling(sent: &[bool], got: &[bool]) -> usize {
@@ -218,9 +254,7 @@ mod tests {
     #[test]
     fn silence_yields_no_tracking_drift() {
         let mut det = MskDetector::new(RATE, CENTRE_HZ, BAUD);
-        for _ in 0..48_000 {
-            det.push(0.0);
-        }
+        det.process(&[0.0; 48_000], &mut Vec::new());
         assert_eq!(det.offset_hz(), 0.0);
     }
 
@@ -228,9 +262,7 @@ mod tests {
     fn reset_forgets_the_tracked_offset() {
         let bits = random_bits(5, 400);
         let mut det = MskDetector::new(RATE, CENTRE_HZ, BAUD);
-        for s in audio(&bits, 500.0, 1.0) {
-            det.push(s);
-        }
+        det.process(&audio(&bits, 500.0, 1.0), &mut Vec::new());
         assert_ne!(det.offset_hz(), 0.0);
         det.reset();
         assert_eq!(det.offset_hz(), 0.0);

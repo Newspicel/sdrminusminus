@@ -2,7 +2,7 @@
 #   docker compose up -d   → http://<host>:8080
 services:
   sdrmm:
-    image: ghcr.io/newspicel/sdrminusminus:latest
+    image: ghcr.io/newspicel/sdrmm:latest
     # Present so `docker compose up` can build from this checkout when the image is not
     # already local; `docker compose pull` fetches the published multi-arch image instead.
     build: .

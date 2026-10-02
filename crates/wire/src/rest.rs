@@ -17,14 +17,13 @@ pub struct EventAudio {
 pub struct VoiceCall {
     pub id: u64,
     pub node: String,
-    pub source_node: String,
     pub started_at: String,
     pub ended_at: String,
     pub duration_ms: u64,
     pub device_set: u32,
     pub channel: u32,
     pub freq_hz: f64,
-    pub mode: DvMode,
+    pub mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,6 +40,14 @@ pub struct VoiceCall {
     pub audio: Option<EventAudio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_error: Option<String>,
+}
+
+impl VoiceCall {
+    #[must_use]
+    pub fn mode_label(&self) -> String {
+        DvMode::from_type_id(&self.mode)
+            .map_or_else(|| self.mode.to_uppercase(), |mode| mode.label().to_owned())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

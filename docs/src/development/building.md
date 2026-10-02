@@ -23,8 +23,8 @@ toolchain. SoapySDR loads at runtime, so no development package is needed.
 ## Build and run
 
 ```sh
-git clone https://github.com/Newspicel/sdrminusminus.git
-cd sdrminusminus
+git clone https://github.com/Newspicel/sdrmm.git
+cd sdrmm
 python3 scripts/build-media.py
 export FFMPEG_DIR="$(python3 scripts/build-media.py --print-prefix)"
 pnpm --dir web install --frozen-lockfile
@@ -63,7 +63,7 @@ the toolchain. xtask retries Cargo up to three times on Windows, since the
 
 ## Feature flags
 
-The server enables `soapy`, `sdrplay`, `cr8`, `rtlsdr`, `hackrf`, `airspy`, `airspyhf`, `ad936x`,
+The server enables `soapy`, `sdrplay`, `cr8`, `rtlsdr`, `hackrf`, `airspy`, `airspyhf`, `espsdr`, `ad936x`,
 `net-client`, and `gpu-fft` by default. Packaged releases use a subset.
 
 ```sh

@@ -1,5 +1,12 @@
 import type { DecoderEvent } from "../lib/types";
-import { candidateScore, dvMode, dvNetwork, dvParties, modulationLabel } from "./decoderViews";
+import {
+  callMode,
+  candidateScore,
+  dvMode,
+  dvNetwork,
+  dvParties,
+  modulationLabel,
+} from "./decoderViews";
 import { formatHz } from "./format";
 import { SSTV_MODE_LABELS } from "./sstvModes";
 
@@ -69,7 +76,7 @@ type EventData<K extends DecoderEvent["kind"]> = Extract<DecoderEvent, { kind: K
 
 function callSummary(c: EventData<"call">): string {
   return join([
-    c.mode.toUpperCase(),
+    callMode(c.mode),
     c.destination == null
       ? null
       : c.group_call === false

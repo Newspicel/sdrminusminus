@@ -29,8 +29,9 @@ COPY xtask xtask
 RUN find crates apps xtask -type f ! -name Cargo.toml -delete \
     && find crates apps xtask -mindepth 1 -type d -empty -delete \
     && for dir in crates/*/; do mkdir -p "$dir/src" && : > "$dir/src/lib.rs"; done \
-    && for dir in apps/*/ xtask/; do mkdir -p "$dir/src" && echo 'fn main() {}' > "$dir/src/main.rs"; done \
-    && for m in crates/*/Cargo.toml apps/*/Cargo.toml xtask/Cargo.toml; do \
+    && for dir in apps/*/ xtask/ xtask/release/; do mkdir -p "$dir/src" && echo 'fn main() {}' > "$dir/src/main.rs"; done \
+    && : > xtask/release/src/lib.rs \
+    && for m in crates/*/Cargo.toml apps/*/Cargo.toml xtask/Cargo.toml xtask/release/Cargo.toml; do \
          grep -A2 '^\[\[bench\]\]' "$m" | sed -n 's/^name *= *"\([^"]*\)".*/\1/p' \
          | while read -r b; do \
              mkdir -p "$(dirname "$m")/benches" \
@@ -62,7 +63,7 @@ RUN python3 scripts/build-media.py --prefix /opt/sdrmm-media
 ENV FFMPEG_DIR=/opt/sdrmm-media
 RUN rustup show
 
-ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
+ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,espsdr,ad936x,net-client,gpu-fft
 # `ci` (Cargo.toml) drops LTO to answer a broken Dockerfile faster on a pull request. Releases
 # must never pass this: the published image is built from the default.
 ARG PROFILE=release
@@ -88,7 +89,7 @@ RUN test -f web/dist/index.html \
 # --- runtime -----------------------------------------------------------------------------
 FROM debian:trixie-slim AS runtime
 LABEL org.opencontainers.image.url="https://sdrmm.com" \
-      org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
+      org.opencontainers.image.source="https://github.com/newspicel/sdrmm" \
       org.opencontainers.image.description="SDR--: headless SDR server with embedded web UI" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 

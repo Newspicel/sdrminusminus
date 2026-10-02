@@ -87,7 +87,6 @@ export function fromTriState(state: TriState): boolean | undefined {
 
 export interface WiredSource {
   channelType?: string;
-  recordsCalls: boolean;
   trunk: boolean;
   monitor?: boolean;
 }
@@ -107,13 +106,15 @@ export function kindsOffered(
     }
     if (source.trunk) {
       kinds.add("dv");
+      kinds.add("call");
     }
-    const kind = descriptors.find((d) => d.type_id === source.channelType)?.decoder_kind;
+    const descriptor = descriptors.find((d) => d.type_id === source.channelType);
+    const kind = descriptor?.decoder_kind;
     if (kind != null) {
       kinds.add(kind);
       if (kind === "broadcast") kinds.add("broadcast_data");
     }
-    if (source.recordsCalls) {
+    if (descriptor?.has_audio === true || kind === "dv") {
       kinds.add("call");
     }
   }

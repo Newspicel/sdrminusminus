@@ -37,7 +37,7 @@ export function newNodeBody(
   if (kind === "channel") {
     return {
       kind,
-      data: { channel_type: seed.channelType ?? "nfm", record_calls: false },
+      data: { channel_type: seed.channelType ?? "nfm" },
     };
   }
   return defaultBody(catalog, kind);

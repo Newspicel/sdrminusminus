@@ -1982,6 +1982,103 @@
         }
       }
     },
+    "/api/denoise-models": {
+      "get": {
+        "operationId": "list_denoise_models",
+        "responses": {
+          "200": {
+            "description": "Every DPDFNet model and whether it is here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DenoiseModelsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/denoise-models/{model}": {
+      "post": {
+        "operationId": "download_denoise_model",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "path",
+            "description": "Model name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Download started"
+          },
+          "404": {
+            "description": "No such model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already downloading",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No data directory to keep models in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_denoise_model",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "path",
+            "description": "Model name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Model removed"
+          },
+          "404": {
+            "description": "No such model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devices": {
       "get": {
         "operationId": "get_devices",
@@ -9887,9 +9984,6 @@
           "channel_type": {
             "type": "string"
           },
-          "record_calls": {
-            "type": "boolean"
-          },
           "tuning_locked": {
             "type": "boolean"
           }
@@ -14038,8 +14132,130 @@
         "type": "string",
         "enum": [
           "spectral",
+          "rnnoise",
           "neural"
         ]
+      },
+      "DenoiseModel": {
+        "type": "string",
+        "enum": [
+          "baseline",
+          "dpdfnet2",
+          "dpdfnet4",
+          "dpdfnet8",
+          "dpdfnet2_8khz",
+          "dpdfnet8_8khz",
+          "dpdfnet2_48khz_hr",
+          "dpdfnet8_48khz_hr"
+        ]
+      },
+      "DenoiseModelState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "missing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "received",
+              "state"
+            ],
+            "properties": {
+              "received": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "downloading"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error",
+              "state"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "DenoiseModelStatus": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DenoiseModelState"
+          },
+          {
+            "type": "object",
+            "required": [
+              "model",
+              "bytes"
+            ],
+            "properties": {
+              "bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "model": {
+                "$ref": "#/components/schemas/DenoiseModel"
+              }
+            }
+          }
+        ]
+      },
+      "DenoiseModelsResponse": {
+        "type": "object",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DenoiseModelStatus"
+            }
+          }
+        }
       },
       "DenoiseSettings": {
         "type": "object",
@@ -14049,6 +14265,9 @@
           },
           "mode": {
             "$ref": "#/components/schemas/DenoiseMode"
+          },
+          "model": {
+            "$ref": "#/components/schemas/DenoiseModel"
           },
           "strength": {
             "type": "number",
@@ -15381,9 +15600,6 @@
           },
           "protocol": {
             "$ref": "#/components/schemas/DmrTrunkProtocol"
-          },
-          "record_calls": {
-            "type": "boolean"
           }
         }
       },
@@ -16163,6 +16379,20 @@
       },
       "EventOutputTarget": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "service"
+            ],
+            "properties": {
+              "service": {
+                "type": "string",
+                "enum": [
+                  "recordings"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [
@@ -21523,7 +21753,7 @@
         "enum": [
           "always",
           "channel_has_audio",
-          "channel_is_decoder",
+          "channel_has_events",
           "channel_has_video",
           "channel_needs_position",
           "device_is_tx_capable"
@@ -27690,7 +27920,6 @@
         "required": [
           "id",
           "node",
-          "source_node",
           "started_at",
           "ended_at",
           "duration_ms",
@@ -27774,7 +28003,7 @@
             "minimum": 0
           },
           "mode": {
-            "$ref": "#/components/schemas/DvMode"
+            "type": "string"
           },
           "node": {
             "type": "string"
@@ -27794,9 +28023,6 @@
             ],
             "format": "int32",
             "minimum": 0
-          },
-          "source_node": {
-            "type": "string"
           },
           "started_at": {
             "type": "string"

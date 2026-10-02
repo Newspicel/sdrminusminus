@@ -99,7 +99,7 @@ const CATALOG: PatchCatalog = {
           port_type: "events",
           direction: "out",
           multi: true,
-          condition: "channel_is_decoder",
+          condition: "channel_has_events",
         },
         {
           name: "video",
@@ -246,6 +246,7 @@ describe("ports", () => {
       "iq",
       "control",
       "audio",
+      "events",
     ]);
     expect(portsOf(context, graph, adsb).map((p) => p.name)).toEqual([
       "iq",
@@ -276,6 +277,7 @@ describe("ports", () => {
     expect(nfm && portsOf({ ...context, catalog }, graph, nfm).map((p) => p.name)).toEqual([
       "iq",
       "control",
+      "events",
     ]);
   });
 

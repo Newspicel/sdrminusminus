@@ -42,7 +42,7 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-const CHANNEL_TAPS: usize = 129;
+const CHANNEL_TAPS: usize = 65;
 
 const BAUD: f64 = 2_400.0;
 const CENTRE_HZ: f64 = 1_800.0;
@@ -73,7 +73,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     summary: "Aircraft text messages on VHF".to_owned(),
     family: DecoderFamily::Aviation,
     bandwidth_hz: 12_500.0,
-    input_rate_hz: 48_000.0,
+    input_rate_hz: 24_000.0,
     has_audio: false,
     decoder_kind: Some("acars".to_owned()),
     ..ChannelDescriptor::default()
@@ -81,6 +81,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct AcarsChannel {
     envelope: Vec<f32>,
+    bits: Vec<bool>,
     dc: DcBlocker,
     detector: MskDetector,
     framer: Framer,
@@ -133,6 +134,7 @@ impl ChannelRx for AcarsChannel {
         check_params(params(&settings)?)?;
         Ok(Self {
             envelope: Vec::new(),
+            bits: Vec::new(),
             dc: DcBlocker::new(),
             detector: MskDetector::new(ctx.input_rate, CENTRE_HZ, BAUD),
             framer: Framer::new(),
@@ -150,12 +152,12 @@ impl ChannelRx for AcarsChannel {
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.envelope.clear();
-        self.envelope.extend(iq.iter().map(|s| s.norm()));
+        self.envelope.extend(iq.iter().map(|s| s.norm_sqr().sqrt()));
         self.dc.process(&mut self.envelope);
-        for &sample in &self.envelope {
-            if let Some(bit) = self.detector.push(sample) {
-                self.framer.push(bit, out);
-            }
+        self.bits.clear();
+        self.detector.process(&self.envelope, &mut self.bits);
+        for &bit in &self.bits {
+            self.framer.push(bit, out);
         }
     }
 }
@@ -354,7 +356,7 @@ mod tests {
         testutil::{complex_noise, settings},
     };
 
-    const RATE: f64 = 48_000.0;
+    const RATE: f64 = 24_000.0;
     const BLOCKS: [usize; 7] = [997, 1, 4_096, 65, 2_048, 7, 1_024];
 
     fn channel() -> AcarsChannel {
@@ -533,7 +535,11 @@ mod tests {
                 )
             })
             .collect();
-        let messages = decode(&filtered(&iq));
+        let mut tuned = Vec::new();
+        sdrmm_dsp::Ddc::new(48_000.0, RATE, 0.0)
+            .unwrap()
+            .process(&iq, &mut tuned);
+        let messages = decode(&filtered(&tuned));
         assert_eq!(messages.len(), 2, "{messages:?}");
 
         let report = &messages[0];

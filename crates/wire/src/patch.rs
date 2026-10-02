@@ -118,7 +118,7 @@ pub enum PortCondition {
     #[default]
     Always,
     ChannelHasAudio,
-    ChannelIsDecoder,
+    ChannelHasEvents,
     ChannelHasVideo,
     ChannelNeedsPosition,
     DeviceIsTxCapable,
@@ -225,8 +225,8 @@ impl PortSpec {
             (PortCondition::ChannelHasAudio, Some(PortBacking::Channel(channel))) => {
                 channel.has_audio
             }
-            (PortCondition::ChannelIsDecoder, Some(PortBacking::Channel(channel))) => {
-                channel.decoder_kind.is_some()
+            (PortCondition::ChannelHasEvents, Some(PortBacking::Channel(channel))) => {
+                channel.decoder_kind.is_some() || channel.has_audio
             }
             (PortCondition::ChannelHasVideo, Some(PortBacking::Channel(channel))) => {
                 channel.has_video
@@ -357,8 +357,6 @@ impl Default for SignalGenNode {
 pub struct ChannelNode {
     pub channel_type: String,
     #[serde(default)]
-    pub record_calls: bool,
-    #[serde(default)]
     pub tuning_locked: bool,
 }
 
@@ -456,8 +454,6 @@ pub struct DmrTrunkNode {
     #[serde(default)]
     pub protocol: DmrTrunkProtocol,
     #[serde(default)]
-    pub record_calls: bool,
-    #[serde(default)]
     pub discovery: DmrDiscovery,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channel_map: Vec<DmrChannelEntry>,
@@ -511,7 +507,6 @@ impl Default for DmrTrunkNode {
     fn default() -> Self {
         Self {
             protocol: DmrTrunkProtocol::Auto,
-            record_calls: true,
             discovery: DmrDiscovery::default(),
             channel_map: Vec::new(),
             control_hz: None,
@@ -903,16 +898,12 @@ impl PatchGraph {
                     }
                 }
                 NodeBody::Channel(channel) => {
-                    if let Some(descriptors) = channels {
-                        let descriptor = descriptors
+                    if let Some(descriptors) = channels
+                        && !descriptors
                             .iter()
-                            .find(|d| d.type_id == channel.channel_type)
-                            .ok_or_else(|| PatchError::ChannelType(channel.channel_type.clone()))?;
-                        if channel.record_calls
-                            && descriptor.decoder_kind.as_deref() != Some(DV_DECODER_KIND)
-                        {
-                            return Err(PatchError::NodeSettings(node.id.clone()));
-                        }
+                            .any(|d| d.type_id == channel.channel_type)
+                    {
+                        return Err(PatchError::ChannelType(channel.channel_type.clone()));
                     }
                 }
                 NodeBody::Recording(recording) if !recording.valid() => {
