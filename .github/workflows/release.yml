@@ -523,6 +523,7 @@ jobs:
           cargo xtask-release homebrew-tap \
             --version "${{ needs.version.outputs.version }}" \
             --sums SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
             --out tap
       - name: Push tap
         working-directory: tap

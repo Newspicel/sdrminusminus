@@ -102,13 +102,14 @@ and embedded frontend. CI builds and smoke-tests both architectures.
 ## Homebrew tap
 
 The `sdrmm` formula lives in homebrew-core and builds from the GitHub source tarball. The release
-workflow updates the `sdrmm-app` cask in `Newspicel/homebrew-tap`, which downloads from
-`downloads.sdrmm.com`:
+workflow updates the `sdrmm-app` cask in `Newspicel/homebrew-tap`, which downloads from GitHub
+Releases:
 
 ```sh
 cargo xtask homebrew-tap \
   --version 1.2.3 \
   --sums SHA256SUMS \
+  --repo Newspicel/sdrmm \
   --out ../homebrew-tap
 ```
 
@@ -127,7 +128,8 @@ brew audit --strict --online --cask newspicel/tap/sdrmm-app
 The R2 bucket `sdrmm` serves `downloads.sdrmm.com`, the primary download location. A stable release
 uploads to `releases/<tag>/` first, then to GitHub Releases as the fallback. Once both hold it,
 `releases/latest`, `releases/latest.json` (updater manifest) and `releases/release.json` (download
-page) move to the new tag. The Homebrew cask, AUR packages and WinGet manifest point at the mirror.
+page) move to the new tag. AUR packages and the WinGet manifest point at the mirror; the Homebrew
+cask stays on GitHub.
 Nightlies stay on GitHub only.
 
 A tagged release fails without `CLOUDFLARE_API_TOKEN` (R2 write) and `CLOUDFLARE_ACCOUNT_ID`.
