@@ -72,6 +72,7 @@ impl SurfaceRefusal {
 #[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
     BeastExportStatus(crate::event_output::BeastExportStatus),
+    EventOutputStatus(crate::event_output::EventOutputStatus),
     PipelineHealth {
         queues: Vec<crate::PipelineQueue>,
         websocket: crate::QueueHealth,

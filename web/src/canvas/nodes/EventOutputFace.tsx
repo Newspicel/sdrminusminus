@@ -11,6 +11,7 @@ import {
   WEBHOOK_FORMATS,
 } from "./eventOutput";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { OutputDelivery } from "./OutputDelivery";
 
 export function EventOutputFace({ node }: { node: PatchNode }) {
   if (node.kind !== "event_output") {
@@ -55,7 +56,10 @@ function EventOutputNodeFace({ node }: { node: PatchNodeOf<"event_output"> }) {
             onEdit={editTarget}
           />
         ) : (
-          <FaceEmpty hint={emptyHint(inputs, configured, target)} />
+          <>
+            <FaceEmpty hint={emptyHint(inputs, configured, target)} />
+            <OutputDelivery node={node.id} />
+          </>
         )}
       </FaceBody>
     </NodeShell>

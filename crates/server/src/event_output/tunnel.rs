@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use sdrmm_wire::{BroadcastData, DecodedRecord, DecoderEvent, EventOutputTarget};
 use tokio::{sync::mpsc, task::JoinHandle};
 
-use super::Binding;
+use super::{Binding, status::Statuses};
 
 struct Entry {
     target: EventOutputTarget,
@@ -17,12 +17,19 @@ impl Drop for Entry {
     }
 }
 
-#[derive(Default)]
 pub(super) struct Outputs {
     entries: HashMap<String, Entry>,
+    statuses: Statuses,
 }
 
 impl Outputs {
+    pub fn new(statuses: Statuses) -> Self {
+        Self {
+            entries: HashMap::new(),
+            statuses,
+        }
+    }
+
     pub fn configure(&mut self, bindings: &[Binding]) {
         self.entries.retain(|node, entry| {
             bindings
@@ -43,6 +50,7 @@ impl Outputs {
             }
             let (sender, mut packets) = mpsc::channel::<Vec<u8>>(256);
             let node = binding.node.clone();
+            let statuses = self.statuses.clone();
             let builder = tun_rs::DeviceBuilder::new()
                 .name(interface)
                 .ipv4(*address, *prefix, None)
@@ -53,24 +61,26 @@ impl Outputs {
                 {
                     Ok(Ok(device)) => device,
                     Ok(Err(error)) => {
-                        tracing::error!(output=%node,%error,"could not create broadcast TUN interface");
-                        return;
+                        return fail(
+                            &statuses,
+                            &node,
+                            format!("Cannot create interface: {error}"),
+                        );
                     }
                     Err(error) => {
-                        tracing::error!(output=%node,%error,"broadcast TUN setup worker failed");
-                        return;
+                        return fail(&statuses, &node, format!("Interface setup failed: {error}"));
                     }
                 };
                 while let Some(bytes) = packets.recv().await {
                     match tokio::time::timeout(Duration::from_secs(2), device.send(&bytes)).await {
-                        Ok(Ok(written)) if written == bytes.len() => {}
-                        Ok(Ok(written)) => {
-                            tracing::error!(output=%node,written,expected=bytes.len(),"broadcast TUN packet truncated")
-                        }
-                        Ok(Err(error)) => {
-                            tracing::error!(output=%node,%error,"broadcast TUN write failed")
-                        }
-                        Err(_) => tracing::error!(output=%node,"broadcast TUN write timed out"),
+                        Ok(Ok(written)) if written == bytes.len() => statuses.delivered(&node, 1),
+                        Ok(Ok(written)) => fail(
+                            &statuses,
+                            &node,
+                            format!("Packet truncated: {written} of {} bytes", bytes.len()),
+                        ),
+                        Ok(Err(error)) => fail(&statuses, &node, format!("Write failed: {error}")),
+                        Err(_) => fail(&statuses, &node, "Write timed out".to_owned()),
                     }
                 }
             });
@@ -99,15 +109,22 @@ impl Outputs {
             match ip_packet(data) {
                 Ok(bytes) => {
                     if let Err(error) = entry.sender.try_send(bytes.to_vec()) {
-                        tracing::error!(output=%binding.node,%error,"broadcast TUN delivery queue unavailable");
+                        fail(
+                            &self.statuses,
+                            &binding.node,
+                            format!("Queue unavailable: {error}"),
+                        );
                     }
                 }
-                Err(error) => {
-                    tracing::error!(output=%binding.node,%error,"broadcast datagram rejected by TUN output")
-                }
+                Err(error) => fail(&self.statuses, &binding.node, error.to_owned()),
             }
         }
     }
+}
+
+fn fail(statuses: &Statuses, node: &str, error: String) {
+    tracing::error!(output = %node, %error, "broadcast TUN output failed");
+    statuses.failed(node, 1, error);
 }
 
 fn ip_packet(data: &BroadcastData) -> Result<&[u8], &'static str> {
@@ -168,7 +185,9 @@ mod tests {
             target: target.clone(),
         };
         let (sender, mut receiver) = mpsc::channel(1);
-        let mut outputs = Outputs::default();
+        let statuses = Statuses::default();
+        statuses.configure(std::slice::from_ref(&binding));
+        let mut outputs = Outputs::new(statuses.clone());
         outputs.entries.insert(
             "out".to_owned(),
             Entry {
@@ -197,7 +216,16 @@ mod tests {
             ..elsewhere
         };
         outputs.push(std::slice::from_ref(&binding), &reached);
+        outputs.push(std::slice::from_ref(&binding), &reached);
         assert_eq!(receiver.recv().await.unwrap(), bytes);
+        let status = statuses.get("out").expect("tunnel status");
+        assert_eq!(status.failed, 1);
+        assert!(
+            status
+                .error
+                .expect("queue error")
+                .starts_with("Queue unavailable")
+        );
         outputs.configure(&[]);
         assert!(outputs.entries.is_empty());
         assert!(receiver.recv().await.is_none());

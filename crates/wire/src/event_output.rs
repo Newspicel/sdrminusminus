@@ -325,6 +325,14 @@ pub struct BeastExportStatus {
     pub error: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct EventOutputStatus {
+    pub node: String,
+    pub delivered: u64,
+    pub failed: u64,
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

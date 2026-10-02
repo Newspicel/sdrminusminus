@@ -16685,6 +16685,35 @@
           }
         }
       },
+      "EventOutputStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "delivered",
+          "failed"
+        ],
+        "properties": {
+          "delivered": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "node": {
+            "type": "string"
+          }
+        }
+      },
       "EventOutputTarget": {
         "oneOf": [
           {
@@ -25289,6 +25318,24 @@
                 "type": "string",
                 "enum": [
                   "BeastExportStatus"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/EventOutputStatus"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "EventOutputStatus"
                 ]
               }
             }

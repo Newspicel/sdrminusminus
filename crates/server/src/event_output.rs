@@ -24,6 +24,7 @@ use crate::{Store, calls::Calls, decoded::Decoded};
 mod beast;
 mod influx;
 mod postgres;
+mod status;
 mod tunnel;
 
 const DELIVERY_QUEUE: usize = 64;
@@ -130,13 +131,18 @@ pub(crate) async fn run(
             return;
         }
     };
+    let statuses = status::Statuses::default();
     let (delivery_tx, delivery_rx) = mpsc::channel(DELIVERY_QUEUE);
-    let worker = tokio::spawn(deliver_all(client, delivery_rx, engine.clone()));
+    let worker = tokio::spawn(deliver_all(
+        client,
+        delivery_rx,
+        engine.clone(),
+        statuses.clone(),
+    ));
     let mut routing = load_routing(store.clone()).await;
-    let mut tunnels = tunnel::Outputs::default();
-    tunnels.configure(&routing.bindings);
+    let mut tunnels = tunnel::Outputs::new(statuses.clone());
     let mut beasts = beast::Outputs::default();
-    beasts.configure(&routing.bindings);
+    configure(&routing, &mut tunnels, &mut beasts, &statuses);
     let mut status_tick = tokio::time::interval(Duration::from_secs(1));
     let mut decoded_open = true;
     let mut decoded_sequence = 0_u64;
@@ -145,6 +151,7 @@ pub(crate) async fn run(
             _ = status_tick.tick() => {
                 if let Some(engine) = engine.upgrade() {
                     beasts.publish_status(&engine);
+                    statuses.publish(&engine);
                 }
             },
             event = events.recv() => match event {
@@ -155,15 +162,13 @@ pub(crate) async fn run(
                         | StateScope::Workspaces,
                 }) => {
                     routing = load_routing(store.clone()).await;
-                    tunnels.configure(&routing.bindings);
-                    beasts.configure(&routing.bindings);
+                    configure(&routing, &mut tunnels, &mut beasts, &statuses);
                 },
                 Ok(_) => {}
                 Err(RecvError::Lagged(count)) => {
                     tracing::error!(count, "event output missed server events");
                     routing = load_routing(store.clone()).await;
-                    tunnels.configure(&routing.bindings);
-                    beasts.configure(&routing.bindings);
+                    configure(&routing, &mut tunnels, &mut beasts, &statuses);
                 }
                 Err(RecvError::Closed) => break,
             },
@@ -173,12 +178,13 @@ pub(crate) async fn run(
                     beasts.push(&routed.record);
                     decoded_sequence = decoded_sequence.wrapping_add(1);
                     for delivery in decoded_deliveries(&routing, &routed.record, decoded_sequence, &calls) {
-                        enqueue(&delivery_tx, delivery);
+                        enqueue(&delivery_tx, &statuses, delivery);
                     }
                 }
                 Ok(Decoded::Lost(count)) | Err(RecvError::Lagged(count)) => {
                     tracing::error!(count, "event output missed decoded events");
                     beasts.lost(count);
+                    statuses.lost(count);
                 }
                 Err(RecvError::Closed) => decoded_open = false,
             },
@@ -188,24 +194,25 @@ pub(crate) async fn run(
     let _ = worker.await;
 }
 
-fn enqueue(delivery_tx: &mpsc::Sender<Delivery>, delivery: Delivery) {
-    match delivery_tx.try_send(delivery) {
-        Ok(()) => {}
-        Err(mpsc::error::TrySendError::Full(delivery)) => {
-            tracing::error!(
-                output = %delivery.node,
-                event = %delivery.event,
-                "event output delivery queue is full"
-            );
-        }
-        Err(mpsc::error::TrySendError::Closed(delivery)) => {
-            tracing::error!(
-                output = %delivery.node,
-                event = %delivery.event,
-                "event output delivery worker has stopped"
-            );
-        }
-    }
+fn configure(
+    routing: &Routing,
+    tunnels: &mut tunnel::Outputs,
+    beasts: &mut beast::Outputs,
+    statuses: &status::Statuses,
+) {
+    statuses.configure(&routing.bindings);
+    tunnels.configure(&routing.bindings);
+    beasts.configure(&routing.bindings);
+}
+
+fn enqueue(delivery_tx: &mpsc::Sender<Delivery>, statuses: &status::Statuses, delivery: Delivery) {
+    let (delivery, reason) = match delivery_tx.try_send(delivery) {
+        Ok(()) => return,
+        Err(mpsc::error::TrySendError::Full(delivery)) => (delivery, "Delivery queue full"),
+        Err(mpsc::error::TrySendError::Closed(delivery)) => (delivery, "Delivery worker stopped"),
+    };
+    tracing::error!(output = %delivery.node, event = %delivery.event, reason, "event output dropped an event");
+    statuses.failed(&delivery.node, 1, reason.to_owned());
 }
 
 fn decoded_deliveries(
@@ -351,6 +358,7 @@ async fn deliver_all(
     client: Client,
     mut deliveries: mpsc::Receiver<Delivery>,
     engine: std::sync::Weak<Engine>,
+    statuses: status::Statuses,
 ) {
     let mut databases = postgres::Connections::default();
     let mut pending = Vec::with_capacity(DELIVERY_QUEUE);
@@ -361,7 +369,13 @@ async fn deliver_all(
                 databases: &mut databases,
                 engine: &engine,
             };
-            deliver_with_retries(outputs, batch).await;
+            let Some(first) = batch.first() else {
+                continue;
+            };
+            match deliver_with_retries(outputs, batch).await {
+                Ok(()) => statuses.delivered(&first.node, batch.len()),
+                Err(error) => statuses.failed(&first.node, batch.len(), error.to_string()),
+            }
         }
         pending.clear();
     }
@@ -388,11 +402,15 @@ struct Outputs<'a> {
     engine: &'a std::sync::Weak<Engine>,
 }
 
-async fn deliver_with_retries(mut outputs: Outputs<'_>, batch: &[Delivery]) {
+async fn deliver_with_retries(
+    mut outputs: Outputs<'_>,
+    batch: &[Delivery],
+) -> Result<(), DeliveryError> {
     let Some(first) = batch.first() else {
-        return;
+        return Ok(());
     };
-    for attempt in 1..=MAX_DELIVERY_ATTEMPTS {
+    let mut attempt = 1;
+    loop {
         match deliver(&mut outputs, batch).await {
             Ok(()) => {
                 tracing::info!(
@@ -400,7 +418,7 @@ async fn deliver_with_retries(mut outputs: Outputs<'_>, batch: &[Delivery]) {
                     event = %batch_name(batch),
                     "event output delivered"
                 );
-                break;
+                return Ok(());
             }
             Err(DeliveryError::RateLimited(wait)) if attempt < MAX_DELIVERY_ATTEMPTS => {
                 tracing::warn!(
@@ -410,6 +428,7 @@ async fn deliver_with_retries(mut outputs: Outputs<'_>, batch: &[Delivery]) {
                     "event output rate limited, waiting before the next attempt"
                 );
                 tokio::time::sleep(wait).await;
+                attempt += 1;
             }
             Err(error) => {
                 tracing::error!(
@@ -418,7 +437,7 @@ async fn deliver_with_retries(mut outputs: Outputs<'_>, batch: &[Delivery]) {
                     %error,
                     "event output delivery failed"
                 );
-                break;
+                return Err(error);
             }
         }
     }

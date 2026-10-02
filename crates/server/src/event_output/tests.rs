@@ -837,6 +837,98 @@ async fn a_json_webhook_error_does_not_expose_the_endpoint() {
     assert!(!error.contains(secret));
 }
 
+fn json_webhook(url: String) -> EventOutputTarget {
+    EventOutputTarget::Webhook {
+        url,
+        format: WebhookFormat::Json,
+    }
+}
+
+#[tokio::test]
+async fn delivery_outcomes_reach_the_output_status() {
+    let (base, _) = server().await;
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("test listener");
+    let address = closed.local_addr().expect("local address");
+    drop(closed);
+    let good = json_webhook(format!("{base}/hook"));
+    let bad = json_webhook(format!("http://{address}/hook"));
+    let statuses = status::Statuses::default();
+    statuses.configure(&[
+        Binding {
+            node: "good".to_owned(),
+            target: good.clone(),
+        },
+        Binding {
+            node: "bad".to_owned(),
+            target: bad.clone(),
+        },
+    ]);
+    let (sender, receiver) = mpsc::channel(DELIVERY_QUEUE);
+    sender
+        .send(delivery_to("good", good, &decoded()))
+        .await
+        .expect("queued");
+    sender
+        .send(delivery_to("bad", bad, &decoded()))
+        .await
+        .expect("queued");
+    drop(sender);
+
+    deliver_all(
+        Client::new(),
+        receiver,
+        std::sync::Weak::new(),
+        statuses.clone(),
+    )
+    .await;
+
+    let good = statuses.get("good").expect("good status");
+    assert_eq!((good.delivered, good.failed, good.error), (1, 0, None));
+    let bad = statuses.get("bad").expect("bad status");
+    assert_eq!((bad.delivered, bad.failed), (0, 1));
+    assert!(bad.error.expect("failure").starts_with("Webhook request:"));
+}
+
+#[test]
+fn a_full_delivery_queue_counts_the_dropped_event() {
+    let target = json_webhook("http://127.0.0.1:9/hook".to_owned());
+    let statuses = status::Statuses::default();
+    statuses.configure(&[Binding {
+        node: "hook".to_owned(),
+        target: target.clone(),
+    }]);
+    let (sender, _receiver) = mpsc::channel(1);
+    enqueue(
+        &sender,
+        &statuses,
+        delivery_to("hook", target.clone(), &decoded()),
+    );
+    enqueue(&sender, &statuses, delivery_to("hook", target, &decoded()));
+
+    let status = statuses.get("hook").expect("status");
+    assert_eq!(status.failed, 1);
+    assert_eq!(status.error.as_deref(), Some("Delivery queue full"));
+}
+
+#[test]
+fn a_changed_target_starts_a_fresh_status() {
+    let statuses = status::Statuses::default();
+    let binding = |url: &str| Binding {
+        node: "hook".to_owned(),
+        target: json_webhook(url.to_owned()),
+    };
+    statuses.configure(&[binding("http://a.test/")]);
+    statuses.failed("hook", 2, "down".to_owned());
+    statuses.configure(&[binding("http://a.test/")]);
+    assert_eq!(statuses.get("hook").expect("kept").failed, 2);
+    statuses.configure(&[binding("http://b.test/")]);
+    assert_eq!(statuses.get("hook").expect("reset").failed, 0);
+    statuses.configure(&[]);
+    assert!(statuses.get("hook").is_none());
+}
+
 struct Published {
     topic: String,
     qos: u8,

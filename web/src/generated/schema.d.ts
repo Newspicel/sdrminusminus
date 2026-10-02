@@ -4684,6 +4684,14 @@ export interface components {
         EventOutputNode: {
             target: components["schemas"]["EventOutputTarget"];
         };
+        EventOutputStatus: {
+            /** Format: int64 */
+            delivered: number;
+            error?: string | null;
+            /** Format: int64 */
+            failed: number;
+            node: string;
+        };
         EventOutputTarget: {
             /** @enum {string} */
             service: "recordings";
@@ -7074,6 +7082,10 @@ export interface components {
             data: components["schemas"]["BeastExportStatus"];
             /** @enum {string} */
             type: "BeastExportStatus";
+        } | {
+            data: components["schemas"]["EventOutputStatus"];
+            /** @enum {string} */
+            type: "EventOutputStatus";
         } | {
             data: {
                 queues: components["schemas"]["PipelineQueue"][];
