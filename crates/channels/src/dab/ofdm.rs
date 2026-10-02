@@ -161,7 +161,7 @@ pub fn reference_phase_for_mode(mode: DabTransmissionMode, carrier: i16) -> Opti
     })
     .ok()?;
     let (table, offset) = match mode {
-        DabTransmissionMode::I => {
+        DabTransmissionMode::I | DabTransmissionMode::Auto => {
             let &(_, _, table, offset) = PHASE_STEPS.get(index / 32)?;
             (table, offset)
         }
@@ -276,20 +276,31 @@ impl SymbolDemod {
         (10.0 * (self.signal / self.noise).log10()).clamp(0.0, 40.0) as f32
     }
 
-    fn transform(&mut self, symbol: &[Complex<f32>]) {
+    fn transform(&mut self, useful: &[Complex<f32>], fraction: f32) {
         std::mem::swap(&mut self.previous, &mut self.current);
-        self.scratch.clear();
-        self.scratch
-            .extend_from_slice(&symbol[self.mode.guard..self.mode.symbol()]);
+        self.scratch.copy_from_slice(useful);
         self.fft.process(&mut self.scratch);
-        self.current.copy_from_slice(&self.scratch);
+        let half = self.mode.carriers() as i16 / 2;
+        let turn = 2.0 * PI * fraction / self.mode.useful as f32;
+        let step = Complex::from_polar(1.0, turn);
+        let mut rotation = Complex::from_polar(1.0, -turn * f32::from(half));
+        for carrier in -half..=half {
+            let bin = self.mode.carrier_bin(carrier);
+            self.current[bin] = self.scratch[bin] * rotation;
+            rotation *= step;
+        }
     }
 
-    pub fn demodulate(&mut self, symbol: &[Complex<f32>], out: &mut Vec<Soft>) -> bool {
-        if symbol.len() < self.mode.symbol() {
+    pub fn demodulate(
+        &mut self,
+        useful: &[Complex<f32>],
+        fraction: f32,
+        out: &mut Vec<Soft>,
+    ) -> bool {
+        if useful.len() != self.mode.useful {
             return false;
         }
-        self.transform(symbol);
+        self.transform(useful, fraction);
         if !self.have_reference {
             self.have_reference = true;
             return false;
@@ -358,7 +369,8 @@ pub fn map_symbol_for_mode(
 }
 
 pub struct FrameSync {
-    null: usize,
+    shortest: usize,
+    longest: usize,
     window: [f32; NULL_WINDOW],
     at: usize,
     filled: usize,
@@ -376,8 +388,22 @@ impl FrameSync {
 
     #[must_use]
     pub const fn for_mode(mode: DabTransmissionMode) -> Self {
+        let null = Mode::new(mode).null;
+        Self::between(null / 2, 2 * null)
+    }
+
+    #[must_use]
+    pub const fn any_mode() -> Self {
+        Self::between(
+            Mode::new(DabTransmissionMode::Iii).null / 2,
+            2 * Mode::new(DabTransmissionMode::I).null,
+        )
+    }
+
+    const fn between(shortest: usize, longest: usize) -> Self {
         Self {
-            null: Mode::new(mode).null,
+            shortest,
+            longest,
             window: [0.0; NULL_WINDOW],
             at: 0,
             filled: 0,
@@ -417,7 +443,7 @@ impl FrameSync {
             return None;
         }
         self.average += CARRIER_AVERAGE_RATE * (smoothed - self.average);
-        let ended = self.started && (self.null / 2..2 * self.null).contains(&self.quiet);
+        let ended = self.started && (self.shortest..self.longest).contains(&self.quiet);
         self.quiet = 0;
         self.started = true;
         ended.then_some(NULL_WINDOW)
@@ -428,32 +454,6 @@ impl Default for FrameSync {
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[cfg(test)]
-#[must_use]
-pub fn prefix_offset(frame: &[Complex<f32>]) -> Option<(f32, f32)> {
-    prefix_offset_for_mode(Mode::new(DabTransmissionMode::I), frame)
-}
-
-#[must_use]
-pub fn prefix_offset_for_mode(mode: Mode, frame: &[Complex<f32>]) -> Option<(f32, f32)> {
-    if frame.len() < mode.symbol() {
-        return None;
-    }
-    let mut correlation = Complex::new(0.0f32, 0.0);
-    let mut energy = 0.0f32;
-    for index in 0..mode.guard {
-        let prefix = frame[index];
-        let tail = frame[mode.useful + index];
-        correlation += prefix * tail.conj();
-        energy += prefix.norm_sqr() + tail.norm_sqr();
-    }
-    let coherence = 2.0 * correlation.norm() / energy.max(1e-20);
-    Some((
-        coherence,
-        -correlation.arg() / (2.0 * PI * mode.useful as f32),
-    ))
 }
 
 #[cfg(test)]
@@ -562,8 +562,8 @@ mod tests {
         let mut demod = SymbolDemod::new();
         let mut bits = Vec::new();
         for index in 0..=sent.len() {
-            let start = NULL + index * SYMBOL;
-            demod.demodulate(&iq[start..start + SYMBOL], &mut bits);
+            let start = NULL + index * SYMBOL + GUARD;
+            demod.demodulate(&iq[start..start + USEFUL], 0.0, &mut bits);
         }
         assert_eq!(bits.len(), sent.len() * SYMBOL_BITS);
         for (index, expected) in sent.iter().enumerate() {
@@ -593,34 +593,6 @@ mod tests {
             (expected - NULL_WINDOW..=expected).contains(&starts[0]),
             "found the frame at {} rather than within a window before {expected}",
             starts[0]
-        );
-    }
-
-    #[test]
-    fn the_cyclic_prefix_reports_a_clean_symbol_and_no_offset() {
-        let iq = modulate(&(0..2).map(payload).collect::<Vec<_>>());
-        let (coherence, offset) = prefix_offset(&iq[NULL..]).expect("a full symbol");
-        assert!(coherence > 0.9, "coherence {coherence}");
-        assert!(offset.abs() < 1e-6, "offset {offset}");
-    }
-
-    #[test]
-    fn a_frequency_offset_shows_up_in_the_prefix_phase() {
-        let iq = modulate(&(0..2).map(payload).collect::<Vec<_>>());
-        let shift = 120.0f32;
-        let rate = 2_048_000.0f32;
-        let turned: Vec<Complex<f32>> = iq
-            .iter()
-            .enumerate()
-            .map(|(index, &value)| {
-                value * Complex::from_polar(1.0, 2.0 * PI * shift * index as f32 / rate)
-            })
-            .collect();
-        let (_, offset) = prefix_offset(&turned[NULL..]).expect("a full symbol");
-        assert!(
-            (offset * rate - shift).abs() < 2.0,
-            "estimated {} Hz for {shift} Hz",
-            offset * rate
         );
     }
 }

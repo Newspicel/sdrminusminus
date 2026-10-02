@@ -143,7 +143,7 @@ export function ModeChips({
     case "dvbt":
       return <DvbtChips params={params} broadcast={broadcast} {...mode} />;
     case "drm":
-      return <DrmChips params={params} {...mode} />;
+      return <DrmChips params={params} broadcast={broadcast} {...mode} />;
     case "dmr":
       return <DmrChips params={params} {...mode} />;
     case "nxdn":
@@ -858,6 +858,14 @@ function SstvChips({ params, onParams }: Mode<"sstv">) {
 function DabChips({ params, broadcast, onParams }: Mode<"dab"> & { broadcast?: BroadcastStatus }) {
   const settings = params.settings;
   const mode = settings.mode ?? "auto";
+  const transmissionMode = settings.transmission_mode ?? "i";
+  const detected = broadcast?.transmission_mode;
+  const transmissionModes =
+    detected == null
+      ? DAB_TRANSMISSION_MODES
+      : DAB_TRANSMISSION_MODES.map((option) =>
+          option.value === "auto" ? { ...option, label: `Auto ${detected.toUpperCase()}` } : option,
+        );
   return (
     <>
       <ChoiceChip
@@ -871,8 +879,9 @@ function DabChips({ params, broadcast, onParams }: Mode<"dab"> & { broadcast?: B
       <ChoiceChip
         label="Mode"
         title="DAB transmission mode"
-        value={settings.transmission_mode ?? "i"}
-        options={DAB_TRANSMISSION_MODES}
+        value={transmissionMode}
+        options={transmissionModes}
+        quiet={transmissionMode === "auto"}
         onChange={(transmission_mode) =>
           onParams({ type: "dab", settings: { ...settings, transmission_mode } })
         }
@@ -930,10 +939,34 @@ function DatvChips({
           />
           <ToggleChip
             label="Superframes"
-            title="Receive Annex E format 0 or 1 with the default reference and payload scrambling codes"
+            title="Receive DVB-S2X Annex E superframes, formats 0 to 7"
             on={settings.superframes ?? false}
             onChange={(superframes) => set({ ...settings, superframes })}
           />
+          {settings.superframes ? (
+            <>
+              <NumberChip
+                label="Ref code"
+                title="Superframe reference scrambling code n_Ref, 0 by default"
+                value={settings.superframe_reference ?? 0}
+                {...limitOf(limits, "superframe_reference")}
+                onCommit={(superframe_reference) => set({ ...settings, superframe_reference })}
+              />
+              <NumberChip
+                label="Data code"
+                title="Superframe payload scrambling code n_Pay, 0 by default"
+                value={settings.superframe_payload ?? 0}
+                {...limitOf(limits, "superframe_payload")}
+                onCommit={(superframe_payload) => set({ ...settings, superframe_payload })}
+              />
+              <ToggleChip
+                label="Code search"
+                title="Find unknown scrambling codes from the signal; needs a clean carrier"
+                on={settings.superframe_search ?? false}
+                onChange={(superframe_search) => set({ ...settings, superframe_search })}
+              />
+            </>
+          ) : null}
           <OptionalNumberChip
             label="Stream"
             title="Choose an input stream identifier on a multistream carrier"
@@ -1011,7 +1044,7 @@ function DvbtChips({
   );
 }
 
-function DrmChips({ params, onParams }: Mode<"drm">) {
+function DrmChips({ params, broadcast, onParams }: Mode<"drm"> & { broadcast?: BroadcastStatus }) {
   const settings = params.settings;
   const mode = settings.mode ?? "auto";
   return (
@@ -1040,6 +1073,12 @@ function DrmChips({ params, onParams }: Mode<"drm">) {
         onCommit={(bandwidth_hz) =>
           onParams({ type: "drm", settings: { ...settings, bandwidth_hz } })
         }
+      />
+      <ServiceChip
+        status={broadcast}
+        value={settings.service ?? null}
+        max={3}
+        onChange={(service) => onParams({ type: "drm", settings: { ...settings, service } })}
       />
     </>
   );

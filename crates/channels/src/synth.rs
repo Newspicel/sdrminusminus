@@ -7,6 +7,7 @@ mod dab_packet;
 mod dab_pad;
 pub mod datv;
 pub mod dect;
+pub mod drm;
 pub mod dv;
 pub mod dvbt;
 pub mod ermes;

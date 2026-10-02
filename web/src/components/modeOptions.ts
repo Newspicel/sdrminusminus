@@ -127,6 +127,7 @@ export const DAB_MODES: Options<NonNullable<ChannelParamsOf<"dab">["mode"]>> = [
 export const DAB_TRANSMISSION_MODES: Options<
   NonNullable<ChannelParamsOf<"dab">["transmission_mode"]>
 > = [
+  { value: "auto", label: "Auto" },
   { value: "i", label: "I" },
   { value: "ii", label: "II" },
   { value: "iii", label: "III" },

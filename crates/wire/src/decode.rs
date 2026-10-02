@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{PskBaud, RadioClockStandard, channel::SstvMode};
+use crate::{
+    PskBaud, RadioClockStandard,
+    channel::{DabTransmissionMode, SstvMode},
+};
 
 pub const NO_CHANNEL: u32 = u32::MAX;
 
@@ -733,6 +736,18 @@ pub struct BroadcastData {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SuperframeStatus {
+    pub format: u8,
+    pub sosf: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pilot: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trailer: Option<u8>,
+    pub reference: u32,
+    pub payload: u32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BroadcastStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -762,6 +777,8 @@ pub struct BroadcastStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol_rate: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transmission_mode: Option<DabTransmissionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ensemble_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_id: Option<u32>,
@@ -783,6 +800,8 @@ pub struct BroadcastStatus {
     pub frames_bad: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub services: Vec<BroadcastService>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superframe: Option<SuperframeStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

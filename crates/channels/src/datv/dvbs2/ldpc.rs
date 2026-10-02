@@ -36,7 +36,6 @@ impl Frame {
         }
     }
 
-    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub const fn correct_bits(self) -> usize {
         match self {

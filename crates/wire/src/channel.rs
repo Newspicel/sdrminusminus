@@ -126,12 +126,26 @@ pub fn param_limits(type_id: &str) -> Vec<ParamLimit> {
             7_500_000.0,
             500_000.0,
         )],
-        "datv" => vec![limit(
-            "symbol_rate",
-            MIN_DATV_SYMBOL_RATE,
-            MAX_DATV_SYMBOL_RATE,
-            1_000.0,
-        )],
+        "datv" => vec![
+            limit(
+                "symbol_rate",
+                MIN_DATV_SYMBOL_RATE,
+                MAX_DATV_SYMBOL_RATE,
+                1_000.0,
+            ),
+            limit(
+                "superframe_reference",
+                0.0,
+                f64::from(MAX_SUPERFRAME_CODE),
+                1.0,
+            ),
+            limit(
+                "superframe_payload",
+                0.0,
+                f64::from(MAX_SUPERFRAME_CODE),
+                1.0,
+            ),
+        ],
         "ident" => vec![
             limit(
                 "bandwidth_hz",
@@ -827,6 +841,7 @@ pub enum DabMode {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DabTransmissionMode {
+    Auto,
     #[default]
     I,
     Ii,
@@ -854,6 +869,7 @@ pub enum DatvStandard {
 
 pub const MIN_DATV_SYMBOL_RATE: f64 = 100_000.0;
 pub const MAX_DATV_SYMBOL_RATE: f64 = 4_000_000.0;
+pub const MAX_SUPERFRAME_CODE: u32 = (1 << 20) - 2;
 
 fn default_datv_symbol_rate() -> f64 {
     333_000.0
@@ -916,6 +932,12 @@ pub struct DatvParams {
     #[serde(default)]
     pub superframes: bool,
     #[serde(default)]
+    pub superframe_reference: u32,
+    #[serde(default)]
+    pub superframe_payload: u32,
+    #[serde(default)]
+    pub superframe_search: bool,
+    #[serde(default)]
     pub standard: DatvStandard,
     #[serde(default = "default_datv_symbol_rate")]
     pub symbol_rate: f64,
@@ -935,6 +957,9 @@ impl Default for DatvParams {
             standard: DatvStandard::default(),
             symbol_rate: default_datv_symbol_rate(),
             superframes: false,
+            superframe_reference: 0,
+            superframe_payload: 0,
+            superframe_search: false,
             code_rate: DatvCodeRate::default(),
             roll_off: DatvRollOff::default(),
             program: None,

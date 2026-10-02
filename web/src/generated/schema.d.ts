@@ -2678,10 +2678,12 @@ export interface components {
             services?: components["schemas"]["BroadcastService"][];
             /** Format: float */
             snr_db: number;
+            superframe?: components["schemas"]["SuperframeStatus"] | null;
             /** Format: double */
             symbol_rate?: number | null;
             system: components["schemas"]["BroadcastSystem"];
             text?: string | null;
+            transmission_mode?: components["schemas"]["DabTransmissionMode"] | null;
             video_error?: string | null;
             /** Format: int32 */
             video_frames_bad?: number;
@@ -3645,7 +3647,7 @@ export interface components {
             transmission_mode?: components["schemas"]["DabTransmissionMode"];
         };
         /** @enum {string} */
-        DabTransmissionMode: "i" | "ii" | "iii" | "iv";
+        DabTransmissionMode: "auto" | "i" | "ii" | "iii" | "iv";
         DataLinkMessage: {
             crc_ok: boolean;
             details: unknown;
@@ -3674,6 +3676,11 @@ export interface components {
             program?: number | null;
             roll_off?: components["schemas"]["DatvRollOff"];
             standard?: components["schemas"]["DatvStandard"];
+            /** Format: int32 */
+            superframe_payload?: number;
+            /** Format: int32 */
+            superframe_reference?: number;
+            superframe_search?: boolean;
             superframes?: boolean;
             /** Format: double */
             symbol_rate?: number;
@@ -7410,6 +7417,20 @@ export interface components {
             /** Format: int32 */
             stream: number;
             tuning?: components["schemas"]["Tuning"] | null;
+        };
+        SuperframeStatus: {
+            /** Format: int32 */
+            format: number;
+            /** Format: int32 */
+            payload: number;
+            /** Format: int32 */
+            pilot?: number | null;
+            /** Format: int32 */
+            reference: number;
+            /** Format: int32 */
+            sosf: number;
+            /** Format: int32 */
+            trailer?: number | null;
         };
         SurfaceFit: {
             /** Format: int32 */

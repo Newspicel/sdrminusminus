@@ -16,7 +16,7 @@ covers the modes that need more than a frequency.
 | Amateur and HF | CW skimmer, FT8, FT4, WSPR | APRS / AX.25, RTTY, PSK31 to PSK250, Morse | |
 | Paging and telemetry | POCSAG | FLEX, ERMES, Selcall (CCIR, ZVEI), DCF77, WWVB, MSF, JJY | |
 | Pictures and video | | [SSTV](#sstv), ATV | |
-| Broadcast digital | [DAB and DAB+](#dab-and-dab) | | [DVB-T/T2, DATV (DVB-S/S2)](#dvb), DRM30 and DRM+ |
+| Broadcast digital | [DAB and DAB+](#dab-and-dab) | [DRM30 and DRM+](#drm) | [DVB-T/T2, DATV (DVB-S/S2)](#dvb) |
 | Utility | [Signal identifier](scanning.md#identify-a-signal) | Iridium bursts, [DECT survey](#dect) | GNSS lab (GPS L1 C/A) |
 
 | Label | Means |
@@ -39,21 +39,31 @@ radio's sample rate; it reads the middle 80%.
 |---|---|---|
 | DATV | DVB-S/S2/S2X, programme tables, audio, video, GSE | Verified on synthetic IQ only |
 | DVB-T/T2 | DVB-T HP/LP, T2-Base and Lite, SISO/MISO, 1K to 32K, PLP choice, audio, video | Synthetic IQ only. No GSE, no multi-RF TFS. |
-| DRM30 / DRM+ | Lock, SNR, frequency error | No FAC, SDC, or MSC. No services or audio. |
 | GNSS lab | GPS L1 C/A acquisition and navigation data | No position fix |
 | VOR / ILS | Radial, difference in depth of modulation | Tested on generated signals only |
 
 ## DAB and DAB+
 
-Wire `audio` to a Speaker. **Auto** plays the first audio service. **Generation** limits the
-choice to DAB or DAB+. **Transmission** picks mode I to IV. All run at 2.048 MS/s. Only mode I
-has been received on air.
+Wire `audio` to a Speaker. **Auto** plays the first audio service. **Type** limits the choice to
+DAB or DAB+. **Mode** picks transmission mode I to IV, or **Auto** detects it. All run at
+2.048 MS/s. Tuner offsets up to 40 kHz are corrected and shown as frequency error. Modes II to IV
+are tested on generated and reference signals only.
 
 A **Readout** shows the dynamic label and slideshow. The **Decoder log** keeps received MOT
 objects with a download link. Files are offered for download, never opened in the interface.
 
 Packet services appear in the same list as audio services. IP services emit datagrams, see
 [IP data](#ip-data).
+
+## DRM
+
+Wire `audio` to a Speaker. **Mode** picks DRM30 (robustness A to D), DRM+ (E) or Auto.
+**Bandwidth** sets the DRM30 channel, 4.5 to 20 kHz; tune to the DRM reference frequency.
+**Service** picks one of up to four services; Auto plays the first audio service.
+
+AAC, HE-AAC and HE-AAC v2 play. xHE-AAC needs an FFmpeg with USAC and is untested. The dynamic
+label shows the text message. SDC and text CRC failures count as data failures, broken audio
+frames as audio failures.
 
 ## DVB
 
@@ -69,7 +79,9 @@ rate, so a 2 MBd carrier needs a radio that delivers 4 MS/s. Set **Roll-off** to
 transmitter. DVB-S is always 0.35. DVB-S2 finds the MODCOD on its own, including VL-SNR.
 **Input stream** picks one stream on a multistream carrier.
 
-**Superframes** enables DVB-S2X Annex E formats 0 and 1. Formats 2 to 7 are not supported.
+**Superframes** enables DVB-S2X Annex E, formats 0 to 7. Walsh-Hadamard rows are found on their
+own. Set **Ref code** and **Data code** when the carrier does not use the default scrambling, or
+turn on **Code search** to find them on a clean signal.
 
 ## IP data
 

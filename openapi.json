@@ -9149,6 +9149,16 @@
             "type": "number",
             "format": "float"
           },
+          "superframe": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SuperframeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "symbol_rate": {
             "type": [
               "number",
@@ -9163,6 +9173,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "transmission_mode": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DabTransmissionMode"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "video_error": {
@@ -12661,6 +12681,7 @@
       "DabTransmissionMode": {
         "type": "string",
         "enum": [
+          "auto",
           "i",
           "ii",
           "iii",
@@ -12776,6 +12797,19 @@
           },
           "standard": {
             "$ref": "#/components/schemas/DatvStandard"
+          },
+          "superframe_payload": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "superframe_reference": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "superframe_search": {
+            "type": "boolean"
           },
           "superframes": {
             "type": "boolean"
@@ -26436,6 +26470,53 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "SuperframeStatus": {
+        "type": "object",
+        "required": [
+          "format",
+          "sosf",
+          "reference",
+          "payload"
+        ],
+        "properties": {
+          "format": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "pilot": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "reference": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sosf": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "trailer": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
