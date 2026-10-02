@@ -78,7 +78,83 @@ impl NoiseBlankerSettings {
 pub enum DenoiseMode {
     #[default]
     Spectral,
+    Rnnoise,
     Neural,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    ToSchema,
+)]
+pub enum DenoiseModel {
+    #[serde(rename = "baseline")]
+    Baseline,
+    #[default]
+    #[serde(rename = "dpdfnet2")]
+    Dpdfnet2,
+    #[serde(rename = "dpdfnet4")]
+    Dpdfnet4,
+    #[serde(rename = "dpdfnet8")]
+    Dpdfnet8,
+    #[serde(rename = "dpdfnet2_8khz")]
+    Dpdfnet2Narrow,
+    #[serde(rename = "dpdfnet8_8khz")]
+    Dpdfnet8Narrow,
+}
+
+impl DenoiseModel {
+    pub const ALL: [Self; 6] = [
+        Self::Baseline,
+        Self::Dpdfnet2,
+        Self::Dpdfnet4,
+        Self::Dpdfnet8,
+        Self::Dpdfnet2Narrow,
+        Self::Dpdfnet8Narrow,
+    ];
+
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Dpdfnet2 => "dpdfnet2",
+            Self::Dpdfnet4 => "dpdfnet4",
+            Self::Dpdfnet8 => "dpdfnet8",
+            Self::Dpdfnet2Narrow => "dpdfnet2_8khz",
+            Self::Dpdfnet8Narrow => "dpdfnet8_8khz",
+        }
+    }
+
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.name() == name)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum DenoiseModelState {
+    Missing,
+    Downloading { received: u64 },
+    Ready,
+    Failed { error: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DenoiseModelStatus {
+    pub model: DenoiseModel,
+    pub bytes: u64,
+    #[serde(flatten)]
+    pub state: DenoiseModelState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -87,6 +163,8 @@ pub struct DenoiseSettings {
     pub enabled: bool,
     #[serde(default)]
     pub mode: DenoiseMode,
+    #[serde(default)]
+    pub model: DenoiseModel,
     #[serde(default = "default_denoise_strength")]
     pub strength: f32,
 }
@@ -96,6 +174,7 @@ impl Default for DenoiseSettings {
         Self {
             enabled: false,
             mode: DenoiseMode::default(),
+            model: DenoiseModel::default(),
             strength: default_denoise_strength(),
         }
     }
@@ -341,6 +420,33 @@ mod tests {
         assert_eq!(parsed.mode, DenoiseMode::Spectral);
         let neural: DenoiseSettings = serde_json::from_str(r#"{"mode":"neural"}"#).expect("parses");
         assert_eq!(neural.mode, DenoiseMode::Neural);
+        assert_eq!(neural.model, DenoiseModel::Dpdfnet2);
+        let light: DenoiseSettings =
+            serde_json::from_str(r#"{"mode":"rnnoise","model":"dpdfnet8_8khz"}"#).expect("parses");
+        assert_eq!(light.mode, DenoiseMode::Rnnoise);
+        assert_eq!(light.model, DenoiseModel::Dpdfnet8Narrow);
+    }
+
+    #[test]
+    fn every_model_name_parses_back() {
+        for model in DenoiseModel::ALL {
+            assert_eq!(DenoiseModel::from_name(model.name()), Some(model));
+            let json = serde_json::to_string(&model).expect("serializes");
+            assert_eq!(json, format!("\"{}\"", model.name()));
+        }
+    }
+
+    #[test]
+    fn a_model_status_names_its_state_flat() {
+        let status = DenoiseModelStatus {
+            model: DenoiseModel::Baseline,
+            bytes: 10,
+            state: DenoiseModelState::Downloading { received: 4 },
+        };
+        assert_eq!(
+            serde_json::to_value(&status).expect("serializes"),
+            serde_json::json!({"model": "baseline", "bytes": 10, "state": "downloading", "received": 4})
+        );
     }
 
     #[test]

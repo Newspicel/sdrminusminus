@@ -83,7 +83,7 @@ version = "0.0.0"
 license = "AGPL-3.0-or-later"
 authors = ["Julian Haag"]
 repository = "https://github.com/newspicel/sdrmm"
-rust-version = "1.98"
+rust-version = "1.99"
 
 [workspace.dependencies]
 tun-rs = { version = "2.8.11", features = ["async"] }
@@ -175,6 +175,7 @@ rustfft = "6"
 tract-onnx = { version = "0.23.8", default-features = false }
 tract-nnef = "0.23.8"
 realfft = "3"
+nnnoiseless = { version = "0.5.2", default-features = false }
 mfsk-core = { version = "0.11.0", default-features = false, features = ["std", "fft-rustfft", "ft8", "ft4", "wspr"] }
 xng-mode-dsc = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
 xng-mode-stdc = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }

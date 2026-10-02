@@ -1,9 +1,12 @@
 use sdrmm_dsp::{Agc, AutoNotch, Biquad, ClickRemover, SpectralDenoiser};
+use std::sync::Arc;
+
 use sdrmm_wire::{AudioProcessing, ChannelParams, DenoiseMode, DenoiseSettings, NotchSettings};
 
 use crate::{
     AUDIO_RATE,
-    neural_denoise::{NeuralDenoiseError, NeuralDenoiser},
+    neural_denoise::{DenoiseNets, NeuralDenoiseError, NeuralDenoiser},
+    rnnoise::RnnoiseDenoiser,
 };
 
 const AGC_TARGET_RMS: f32 = 0.25;
@@ -49,6 +52,7 @@ impl ClickProfile {
 }
 
 pub struct AudioChain {
+    nets: Arc<dyn DenoiseNets>,
     settings: AudioProcessing,
     profile: ClickProfile,
     planes: Vec<Plane>,
@@ -60,8 +64,10 @@ impl AudioChain {
         audio_channels: u8,
         settings: &AudioProcessing,
         profile: ClickProfile,
+        nets: Arc<dyn DenoiseNets>,
     ) -> Result<Self, NeuralDenoiseError> {
         let mut chain = Self {
+            nets,
             settings: AudioProcessing::default(),
             profile,
             planes: Vec::new(),
@@ -85,13 +91,21 @@ impl AudioChain {
         }
         let agc_changed = rebuild || settings.agc != self.settings.agc;
         let profile_changed = rebuild || profile != self.profile;
+        let mut result = Ok(());
         for plane in &mut self.planes {
-            plane.configure(settings, agc_changed, profile, profile_changed)?;
+            let changes = Changes {
+                agc: agc_changed,
+                profile,
+                profile_changed,
+            };
+            if let Err(error) = plane.configure(settings, changes, self.nets.as_ref()) {
+                result = Err(error);
+            }
         }
         self.deinterleaved.resize_with(planes, Vec::new);
         self.settings = settings.clone();
         self.profile = profile;
-        Ok(())
+        result
     }
 
     #[must_use]
@@ -99,11 +113,10 @@ impl AudioChain {
         self.planes.len()
     }
 
-    pub fn reset(&mut self) -> Result<(), NeuralDenoiseError> {
+    pub fn reset(&mut self) {
         for plane in &mut self.planes {
-            plane.reset()?;
+            plane.reset();
         }
-        Ok(())
     }
 
     pub fn process_audio(&mut self, pcm: &mut [f32]) -> Result<(), NeuralDenoiseError> {
@@ -132,49 +145,67 @@ impl AudioChain {
 
 enum Denoiser {
     Spectral(Box<SpectralDenoiser>),
-    Neural(Box<NeuralDenoiser>),
+    Rnnoise(Box<RnnoiseDenoiser>),
+    Neural(Box<NeuralDenoiser>, sdrmm_wire::DenoiseModel),
 }
 
 impl Denoiser {
-    fn build(settings: &DenoiseSettings) -> Result<Self, NeuralDenoiseError> {
+    fn build(settings: &DenoiseSettings, nets: &dyn DenoiseNets) -> Result<Self, NeuralDenoiseError> {
         Ok(match settings.mode {
             DenoiseMode::Spectral => {
                 Self::Spectral(Box::new(SpectralDenoiser::new(settings.strength)))
             }
-            DenoiseMode::Neural => Self::Neural(Box::new(NeuralDenoiser::new(settings.strength)?)),
+            DenoiseMode::Rnnoise => Self::Rnnoise(Box::new(RnnoiseDenoiser::new(settings.strength))),
+            DenoiseMode::Neural => Self::Neural(
+                Box::new(NeuralDenoiser::new(nets.net(settings.model)?, settings.strength)?),
+                settings.model,
+            ),
         })
     }
 
-    fn mode(&self) -> DenoiseMode {
+    fn matches(&self, settings: &DenoiseSettings) -> bool {
         match self {
-            Self::Spectral(_) => DenoiseMode::Spectral,
-            Self::Neural(_) => DenoiseMode::Neural,
+            Self::Spectral(_) => settings.mode == DenoiseMode::Spectral,
+            Self::Rnnoise(_) => settings.mode == DenoiseMode::Rnnoise,
+            Self::Neural(_, model) => {
+                settings.mode == DenoiseMode::Neural && settings.model == *model
+            }
         }
     }
 
     fn set_strength(&mut self, strength: f32) {
         match self {
             Self::Spectral(denoiser) => denoiser.set_strength(strength),
-            Self::Neural(denoiser) => denoiser.set_strength(strength),
+            Self::Rnnoise(denoiser) => denoiser.set_strength(strength),
+            Self::Neural(denoiser, _) => denoiser.set_strength(strength),
         }
     }
 
-    fn reset(&mut self) -> Result<(), NeuralDenoiseError> {
+    fn reset(&mut self) {
         match self {
-            Self::Spectral(denoiser) => {
-                denoiser.reset();
-                Ok(())
-            }
-            Self::Neural(denoiser) => denoiser.reset(),
+            Self::Spectral(denoiser) => denoiser.reset(),
+            Self::Rnnoise(denoiser) => denoiser.reset(),
+            Self::Neural(denoiser, _) => denoiser.reset(),
         }
     }
 
     fn process(&mut self, pcm: &mut [f32]) -> Result<(), NeuralDenoiseError> {
         match self {
             Self::Spectral(denoiser) => Ok(denoiser.process(pcm)?),
-            Self::Neural(denoiser) => denoiser.process(pcm),
+            Self::Rnnoise(denoiser) => {
+                denoiser.process(pcm);
+                Ok(())
+            }
+            Self::Neural(denoiser, _) => denoiser.process(pcm),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct Changes {
+    agc: bool,
+    profile: ClickProfile,
+    profile_changed: bool,
 }
 
 #[derive(Default)]
@@ -192,10 +223,14 @@ impl Plane {
     fn configure(
         &mut self,
         settings: &AudioProcessing,
-        agc_changed: bool,
-        profile: ClickProfile,
-        profile_changed: bool,
+        changes: Changes,
+        nets: &dyn DenoiseNets,
     ) -> Result<(), NeuralDenoiseError> {
+        let Changes {
+            agc: agc_changed,
+            profile,
+            profile_changed,
+        } = changes;
         let rate = f64::from(AUDIO_RATE);
         match (&mut self.clicks, settings.click_removal.enabled) {
             (Some(clicks), true) if !profile_changed => {
@@ -225,13 +260,7 @@ impl Plane {
             self.auto_notch = None;
         }
 
-        match (&mut self.denoise, settings.denoise.enabled) {
-            (Some(denoise), true) if denoise.mode() == settings.denoise.mode => {
-                denoise.set_strength(settings.denoise.strength);
-            }
-            (slot, true) => *slot = Some(Denoiser::build(&settings.denoise)?),
-            (slot, false) => *slot = None,
-        }
+        let denoised = self.configure_denoise(&settings.denoise, nets);
 
         match settings.agc.time_constants_s() {
             Some((attack_s, release_s)) if agc_changed || self.agc.is_none() => {
@@ -246,10 +275,32 @@ impl Plane {
             Some(_) => {}
             None => self.agc = None,
         }
-        Ok(())
+        denoised
     }
 
-    fn reset(&mut self) -> Result<(), NeuralDenoiseError> {
+    fn configure_denoise(
+        &mut self,
+        settings: &DenoiseSettings,
+        nets: &dyn DenoiseNets,
+    ) -> Result<(), NeuralDenoiseError> {
+        match &mut self.denoise {
+            Some(denoise) if settings.enabled && denoise.matches(settings) => {
+                denoise.set_strength(settings.strength);
+                Ok(())
+            }
+            slot if settings.enabled => {
+                *slot = None;
+                *slot = Some(Denoiser::build(settings, nets)?);
+                Ok(())
+            }
+            slot => {
+                *slot = None;
+                Ok(())
+            }
+        }
+    }
+
+    fn reset(&mut self) {
         if let Some(clicks) = &mut self.clicks {
             clicks.reset();
         }
@@ -263,9 +314,8 @@ impl Plane {
             auto_notch.reset();
         }
         if let Some(denoise) = &mut self.denoise {
-            denoise.reset()?;
+            denoise.reset();
         }
-        Ok(())
     }
 
     fn process(&mut self, pcm: &mut [f32]) -> Result<(), NeuralDenoiseError> {
@@ -317,12 +367,21 @@ mod tests {
     };
 
     use super::*;
-    use crate::testutil::{rms, tone_amplitude};
+    use crate::{
+        neural_denoise::FixtureNets,
+        testutil::{rms, tone_amplitude},
+    };
 
     const RATE: f64 = AUDIO_RATE as f64;
 
     fn chain(settings: AudioProcessing) -> AudioChain {
-        AudioChain::new(1, &settings, ClickProfile::Discriminator).expect("chain builds")
+        AudioChain::new(
+            1,
+            &settings,
+            ClickProfile::Discriminator,
+            Arc::new(FixtureNets),
+        )
+        .expect("chain builds")
     }
 
     fn tone(freq_hz: f64, amplitude: f32, len: usize) -> Vec<f32> {
@@ -379,6 +438,7 @@ mod tests {
                 enabled: true,
                 mode: DenoiseMode::Neural,
                 strength: 0.8,
+                ..DenoiseSettings::default()
             },
             agc: AudioAgcMode::Medium,
         };
@@ -464,6 +524,7 @@ mod tests {
                         enabled: true,
                         mode: DenoiseMode::Neural,
                         strength: 1.0,
+                        ..DenoiseSettings::default()
                     },
                     ..AudioProcessing::default()
                 },
@@ -510,7 +571,7 @@ mod tests {
             input[n..n + 6].fill(3.0);
         }
         let peak_with = |profile| {
-            let mut chain = AudioChain::new(1, &settings, profile).expect("chain builds");
+            let mut chain = AudioChain::new(1, &settings, profile, Arc::new(FixtureNets)).expect("chain builds");
             run(&mut chain, &input)[8_000..]
                 .iter()
                 .fold(0.0f32, |a, s| a.max(s.abs()))
@@ -560,7 +621,12 @@ mod tests {
             .zip(&right)
             .flat_map(|(&l, &r)| [l, r])
             .collect();
-        AudioChain::new(2, &settings, ClickProfile::Discriminator)
+        AudioChain::new(
+            2,
+            &settings,
+            ClickProfile::Discriminator,
+            Arc::new(FixtureNets),
+        )
             .expect("chain builds")
             .process_audio(&mut interleaved)
             .expect("chain runs");

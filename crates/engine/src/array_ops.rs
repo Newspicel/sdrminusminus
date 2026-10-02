@@ -399,6 +399,9 @@ impl Engine {
             }
         }
         let members = state.members();
+        if let Err(error) = state.tell(ControlCommand::Start) {
+            tracing::warn!(array = %node, %error, "array controller missed its start");
+        }
         inner.arrays.insert(node, state);
         inner.revision += 1;
         members

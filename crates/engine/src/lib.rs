@@ -29,6 +29,7 @@ pub mod array;
 mod array_ops;
 pub mod audio;
 mod audio_fx;
+mod denoise_models;
 pub mod audio_recording;
 mod capture_ops;
 mod capture_ring;
@@ -64,6 +65,7 @@ pub mod trunking;
 pub mod video;
 pub use array::{ArrayEvent, ArraySpec, LaneRef, ProcessorAction, ProcessorSpec};
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
+pub use denoise_models::DenoiseModels;
 pub use doppler::Doppler;
 pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
@@ -903,6 +905,7 @@ pub struct Engine {
     registry: DeviceRegistry,
     inner: Mutex<Inner>,
     audio_fx: Mutex<audio_fx::AudioFxHub>,
+    denoise_models: Arc<DenoiseModels>,
     event_tx: broadcast::Sender<ServerEvent>,
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
     decoded_tx: mpsc::SyncSender<RawDecoded>,
@@ -938,10 +941,12 @@ impl Engine {
         let (image_tx, _) = broadcast::channel(image::IMAGE_CHANNEL_CAP);
         let (trunk_tx, trunk_rx) = mpsc::channel();
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
+        let denoise_models = Arc::new(DenoiseModels::default());
         let engine = Arc::new(Self {
             registry,
             inner: Mutex::new(Inner::default()),
-            audio_fx: Mutex::new(audio_fx::AudioFxHub::default()),
+            audio_fx: Mutex::new(audio_fx::AudioFxHub::new(Arc::clone(&denoise_models))),
+            denoise_models,
             event_tx,
             fault_tx,
             decoded_tx,
@@ -1079,6 +1084,11 @@ impl Engine {
     #[must_use]
     pub fn recordings_dir(&self) -> Option<&Path> {
         self.recordings_dir.as_deref()
+    }
+
+    #[must_use]
+    pub fn denoise_models(&self) -> &Arc<DenoiseModels> {
+        &self.denoise_models
     }
 
     fn spawn_fault_drainer(self: &Arc<Self>, fault_rx: mpsc::Receiver<(u32, DeviceError)>) {
