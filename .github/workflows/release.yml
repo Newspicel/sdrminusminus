@@ -24,6 +24,7 @@ jobs:
       winget: ${{ steps.publish.outputs.winget }}
       aur: ${{ steps.publish.outputs.aur }}
       packages: ${{ steps.publish.outputs.packages }}
+      discord: ${{ steps.publish.outputs.discord }}
     steps:
       - id: changed
         env:
@@ -48,14 +49,16 @@ jobs:
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           {
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
             echo "packages=${PACKAGES_GPG_KEY:+true}"
+            echo "discord=${DISCORD_WEBHOOK:+true}"
           } >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            for name in winget aur packages; do
+            for name in winget aur packages discord; do
               grep -qx "$name=true" "$GITHUB_OUTPUT" || echo "::warning::$name not published: secret missing"
             done
           fi
@@ -568,6 +571,29 @@ jobs:
             git -C "$RUNNER_TEMP/$pkg" commit -m "${{ needs.version.outputs.version }}"
             git -C "$RUNNER_TEMP/$pkg" push origin HEAD:master
           done
+
+  discord:
+    name: Discord
+    if: github.ref_type == 'tag' && needs.plan.outputs.discord == 'true'
+    needs: [plan, version, release]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes
+      - name: Write payload
+        run: |
+          cargo xtask-release discord "${{ needs.version.outputs.version }}" \
+            --notes "$RUNNER_TEMP/notes/release-notes.md" \
+            --out "$RUNNER_TEMP/discord.json"
+      - name: Post
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -fsS --retry 3 -H 'Content-Type: application/json' \
+            --data-binary "@$RUNNER_TEMP/discord.json" "$DISCORD_WEBHOOK"
 
   linux-repo:
     name: APT and RPM repository

@@ -148,6 +148,7 @@ Uploads are cached as immutable. Never replace a file; publish a new prefix inst
 | `AUR_SSH_KEY` | Pushing to the AUR | The AUR job is skipped |
 | `WINGET_TOKEN` | WinGet submission | The WinGet job is skipped |
 | `PACKAGES_GPG_KEY` | Signing the APT and RPM repository | The repository job is skipped |
+| `DISCORD_WEBHOOK` | Posting release notes to Discord | The Discord job is skipped |
 
 A tag release warns for every skipped job. Other release jobs continue.
 

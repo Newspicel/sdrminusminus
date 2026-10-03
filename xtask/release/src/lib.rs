@@ -1,5 +1,6 @@
 mod aur;
 pub mod changeset;
+mod discord;
 mod sums;
 mod updater;
 mod version;
@@ -30,6 +31,13 @@ pub enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    Discord {
+        version: String,
+        #[arg(long)]
+        notes: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     UpdaterManifest {
         #[arg(long)]
         version: String,
@@ -56,6 +64,11 @@ pub fn run(root: &Path, cmd: &Cmd) -> Result<()> {
         Cmd::Changeset { bump, summary } => changeset::add(root, *bump, summary),
         Cmd::Release { dry_run } => changeset::release(root, *dry_run),
         Cmd::ReleaseNotes { version, out } => changeset::notes(root, version, out.as_deref()),
+        Cmd::Discord {
+            version,
+            notes,
+            out,
+        } => discord::payload(version, notes, out),
         Cmd::UpdaterManifest {
             version,
             dir,
