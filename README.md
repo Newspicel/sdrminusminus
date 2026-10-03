@@ -26,12 +26,6 @@ Download a desktop installer or portable server from
 The [installation guide](https://sdrmm.com/docs/getting-started/install)
 covers macOS, Windows, Linux, Homebrew, APT, DNF, Nix, and Docker.
 
-On macOS:
-
-```sh
-brew install sdrmm-app
-```
-
 For a headless server on macOS or Linux, install `sdrmm` from Homebrew core:
 
 ```sh
