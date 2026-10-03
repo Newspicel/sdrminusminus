@@ -26,16 +26,6 @@ Download a desktop installer or portable server from
 The [installation guide](https://sdrmm.com/docs/getting-started/install)
 covers macOS, Windows, Linux, Homebrew, APT, DNF, Nix, and Docker.
 
-For a headless server on macOS or Linux, install `sdrmm` from Homebrew core:
-
-```sh
-brew install sdrmm
-brew services start sdrmm
-```
-
-Open <http://localhost:8080>. For remote access, configure
-[authentication and HTTPS](https://sdrmm.com/docs/server/configuration).
-
 ## Start with an RTL-SDR
 
 1. Plug in the RTL-SDR and pick it on the **Device** node. Set the rate to **2.4 MS/s**.
