@@ -45,7 +45,7 @@ The server listens on every network interface with no password. Set up
 App, macOS:
 
 ```sh
-brew install --cask sdrmm-app
+brew install sdrmm-app
 ```
 
 Server, macOS or Linux:

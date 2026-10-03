@@ -29,7 +29,7 @@ covers macOS, Windows, Linux, Homebrew, APT, DNF, Nix, and Docker.
 On macOS:
 
 ```sh
-brew install --cask sdrmm-app
+brew install sdrmm-app
 ```
 
 For a headless server on macOS or Linux, install `sdrmm` from Homebrew core:
