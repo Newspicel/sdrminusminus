@@ -1,6 +1,7 @@
 mod aur;
 pub mod changeset;
 mod discord;
+mod ios;
 mod sums;
 mod updater;
 mod version;
@@ -15,6 +16,10 @@ const DOWNLOADS: &str = "https://downloads.sdrmm.com/releases";
 
 #[derive(Subcommand)]
 pub enum Cmd {
+    IosChanged {
+        #[arg(long)]
+        base: Option<String>,
+    },
     SetVersion {
         version: String,
     },
@@ -60,6 +65,7 @@ pub enum Cmd {
 
 pub fn run(root: &Path, cmd: &Cmd) -> Result<()> {
     match cmd {
+        Cmd::IosChanged { base } => ios::changed(root, base.as_deref()),
         Cmd::SetVersion { version } => version::set(root, version),
         Cmd::Changeset { bump, summary } => changeset::add(root, *bump, summary),
         Cmd::Release { dry_run } => changeset::release(root, *dry_run),

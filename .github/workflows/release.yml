@@ -25,7 +25,20 @@ jobs:
       aur: ${{ steps.publish.outputs.aur }}
       packages: ${{ steps.publish.outputs.packages }}
       discord: ${{ steps.publish.outputs.discord }}
+      ios: ${{ steps.ios.outputs.changed }}
     steps:
+      - if: github.ref_type == 'tag'
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: ios
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          previous="$(git describe --tags --match 'v*' --abbrev=0 HEAD^ 2>/dev/null || true)"
+          args=()
+          if [ -n "$previous" ]; then args=(--base "$previous"); fi
+          echo "changed=$(cargo xtask-release ios-changed "${args[@]}")" >> "$GITHUB_OUTPUT"
       - id: changed
         env:
           GH_TOKEN: ${{ github.token }}
@@ -92,6 +105,51 @@ jobs:
             Cargo.lock
           if-no-files-found: error
           retention-days: 1
+
+  ios:
+    name: iPhone (App Store Connect)
+    needs: [plan, version]
+    if: github.ref_type == 'tag' && needs.plan.outputs.ios == 'true'
+    runs-on: xcode-27
+    concurrency:
+      group: ios-app-store
+      cancel-in-progress: false
+    env:
+      SDRMM_IOS_BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: App Store credentials
+        env:
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          for name in APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then echo "::error::$name is required for iOS uploads"; exit 1; fi
+          done
+          umask 077
+          key="$RUNNER_TEMP/sdrmm-app-store-key.p8"
+          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY" > "$key"
+          echo "APP_STORE_CONNECT_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - run: sudo xcode-select -s /Applications/Xcode_27.app
+      - uses: ./.github/actions/rust
+        with:
+          cache: release-ios
+      - uses: actions/download-artifact@v8
+        with:
+          name: version-stamp
+      - run: cargo xtask ios lint
+      - run: cargo xtask ios test
+      - run: cargo xtask ios archive
+      - run: cargo xtask ios upload
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/sdrmm-app-store-key.p8"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-release-results
+          path: target/ios/results
+          retention-days: 7
 
   binaries:
     name: sdrmm (${{ matrix.target }})

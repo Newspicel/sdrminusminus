@@ -42,6 +42,18 @@ export const imprint: LegalEntry[] = [
 
 export const privacy: LegalEntry[] = [
   {
+    title: "SDR-- iPhone app",
+    body: "The iPhone app connects to an SDR-- server you choose. It has no advertising or third-party analytics SDK. Pairing credentials stay in the device Keychain; preferences stay on the device. Use Settings to forget a paired server.",
+  },
+  {
+    title: "Location and field measurements",
+    body: "With your permission, active missions use precise location, heading and motion to support navigation and radio field measurements. When position sharing is enabled, position and orientation are sent to your paired server, including during active background missions when permitted. The server operator controls any storage and sharing there. Stop the mission or revoke location access in iOS Settings to stop location use. Contact your server operator about deleting server-held measurements.",
+  },
+  {
+    title: "Maps and camera",
+    body: "Apple MapKit provides maps and route calculations under Apple's privacy terms. Route requests include their start and destination. Camera access is used to scan pairing QR codes; the app does not upload camera images. No SDR-- account is required to use the app. For app privacy questions, contact hi@jhaag.me.",
+  },
+  {
     title: "In short",
     body: "This site processes as little data as possible. No cookies, no tracking across sites, no advertising. The sections below explain what still gets processed, and why.",
   },

@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
 
+mod distribution;
 mod e2e;
 mod privacy;
 mod scan;
@@ -45,6 +46,7 @@ pub(crate) enum IosAction {
     Lint,
     E2e,
     Archive,
+    Upload,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,6 +94,7 @@ pub(crate) fn run(root: &Path, action: &IosAction) -> Result<()> {
         IosAction::Build => on_mac(|| build(root)),
         IosAction::Test { ui, floor, only } => on_mac(|| test(root, &test_runs(*ui, *floor, only))),
         IosAction::Archive => on_mac(|| archive(root)),
+        IosAction::Upload => on_mac(|| distribution::upload(root)),
     }
 }
 
@@ -184,7 +187,8 @@ fn write_version(root: &Path) -> Result<()> {
     let version = workspace_version(&manifest)
         .context("Cargo.toml names no version under [workspace.package]")?;
     let path = root.join(APP_DIR).join(VERSION_XCCONFIG);
-    let content = format!("MARKETING_VERSION = {version}\n");
+    let build = std::env::var("SDRMM_IOS_BUILD_NUMBER").ok();
+    let content = distribution::version_config(version, build.as_deref())?;
     if std::fs::read_to_string(&path).is_ok_and(|current| current == content) {
         return Ok(());
     }
@@ -275,6 +279,8 @@ fn xcodebuild(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<()> {
         "-quiet",
     ];
     all.extend_from_slice(args);
+    let authentication = distribution::authentication()?;
+    all.extend(authentication.iter().map(String::as_str));
     crate::run_with_env("xcodebuild", &all, root, env)
 }
 
@@ -496,14 +502,15 @@ fn find_device(listing: &serde_json::Value, simulator: &Simulator) -> Option<Str
 fn archive(root: &Path) -> Result<()> {
     generate(root)?;
     let app = root.join(APP_DIR);
-    let output = Command::new("nm")
+    let output = Command::new(rust_nm()?)
         .arg("-u")
         .arg(app.join(DEVICE_LIBRARY))
         .output()
-        .context("failed to spawn `nm`")?;
+        .context("failed to spawn Rust llvm-nm")?;
     ensure!(
         output.status.success(),
-        "`nm -u` failed on the core library"
+        "Rust llvm-nm failed on the core library: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
     let required = privacy::required_categories(&String::from_utf8_lossy(&output.stdout));
     let manifest = std::fs::read_to_string(app.join(PRIVACY_MANIFEST))
@@ -524,6 +531,27 @@ fn archive(root: &Path) -> Result<()> {
         ],
         &[],
     )
+}
+
+fn rust_nm() -> Result<PathBuf> {
+    let output = Command::new("rustc")
+        .args(["--print", "target-libdir"])
+        .output()
+        .context("locate Rust LLVM tools")?;
+    ensure!(
+        output.status.success(),
+        "rustc could not locate its libraries"
+    );
+    let directory = String::from_utf8(output.stdout).context("Rust library path is not UTF-8")?;
+    let binary = Path::new(directory.trim())
+        .parent()
+        .context("Rust library path has no parent")?
+        .join("bin/llvm-nm");
+    ensure!(
+        binary.is_file(),
+        "Rust llvm-nm missing; run `rustup component add llvm-tools-preview`"
+    );
+    Ok(binary)
 }
 
 #[cfg(test)]
