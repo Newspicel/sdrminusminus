@@ -12,7 +12,7 @@ export const imprint: LegalEntry[] = [
   },
   {
     title: "Contact",
-    body: "Email: me@jhaag.me",
+    body: "Email: contact@sdrmm.com",
   },
   {
     title: "VAT identification number",
@@ -42,24 +42,12 @@ export const imprint: LegalEntry[] = [
 
 export const privacy: LegalEntry[] = [
   {
-    title: "SDR-- iPhone app",
-    body: "The iPhone app connects to an SDR-- server you choose. It has no advertising or third-party analytics SDK. Pairing credentials stay in the device Keychain; preferences stay on the device. Use Settings to forget a paired server.",
-  },
-  {
-    title: "Location and field measurements",
-    body: "With your permission, active missions use precise location, heading and motion to support navigation and radio field measurements. When position sharing is enabled, position and orientation are sent to your paired server, including during active background missions when permitted. The server operator controls any storage and sharing there. Stop the mission or revoke location access in iOS Settings to stop location use. Contact your server operator about deleting server-held measurements.",
-  },
-  {
-    title: "Maps and camera",
-    body: "Apple MapKit provides maps and route calculations under Apple's privacy terms. Route requests include their start and destination. Camera access is used to scan pairing QR codes; the app does not upload camera images. No SDR-- account is required to use the app. For app privacy questions, contact hi@jhaag.me.",
-  },
-  {
     title: "In short",
-    body: "This site processes as little data as possible. No cookies, no tracking across sites, no advertising. The sections below explain what still gets processed, and why.",
+    body: "This policy covers this site and the SDR-- iPhone app. Both process as little data as possible: no cookies, no tracking across sites, no advertising, no account. The sections below explain what still gets processed, and why.",
   },
   {
     title: "Controller",
-    body: `${operator}\nEmail: me@jhaag.me`,
+    body: `${operator}\nEmail: contact@sdrmm.com`,
   },
   {
     title: "Hosting and server logs",
@@ -90,8 +78,24 @@ export const privacy: LegalEntry[] = [
     body: "When you use the contact form or write an email, the data you send (name, email address, message) is processed solely to handle your request. Form messages are delivered to my inbox by Cloudflare Email Routing and are not stored on the site. Legal basis: Art. 6 (1) (b) GDPR for contract-related requests, otherwise Art. 6 (1) (f) GDPR. The data is deleted once it is no longer needed and no statutory retention obligations apply.",
   },
   {
+    title: "iPhone app",
+    body: "The app only talks to SDR-- servers you pair with. I receive no data from it, and it contains no analytics or advertising code. Pairing credentials stay in the iOS Keychain, settings stay on the device. Forgetting a server in Settings removes its credentials. If you opted in on your device, Apple shares anonymous crash reports and usage statistics with me.",
+  },
+  {
+    title: "Local network and camera",
+    body: "Local network access finds SDR-- servers nearby. The camera only scans pairing QR codes; images never leave the device.",
+  },
+  {
+    title: "Location during missions",
+    body: "With your permission, active missions use precise location, heading and motion for navigation and field measurements. With position sharing on, position and heading go to your paired server, also in the background while a mission runs. The server operator decides what is stored there and handles deletion requests. End the mission or revoke location access in iOS Settings to stop.",
+  },
+  {
+    title: "Maps and routes",
+    body: "Maps and routes come from Apple MapKit. Route requests send start and destination to Apple under Apple's privacy policy.",
+  },
+  {
     title: "Your rights",
-    body: "You have the right of access (Art. 15 GDPR), rectification (Art. 16), erasure (Art. 17), restriction of processing (Art. 18), data portability (Art. 20) and objection (Art. 21). An informal email to me@jhaag.me is sufficient to exercise these rights.",
+    body: "You have the right of access (Art. 15 GDPR), rectification (Art. 16), erasure (Art. 17), restriction of processing (Art. 18), data portability (Art. 20) and objection (Art. 21). An informal email to contact@sdrmm.com is sufficient to exercise these rights.",
   },
   {
     title: "Right to lodge a complaint",
