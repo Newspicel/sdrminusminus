@@ -406,6 +406,7 @@ impl ChannelMedia {
                 level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
                 peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
                 squelch_db: Arc::new(AtomicU32::new(f32::NAN.to_bits())),
+                shift_hz: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
             },
             audio_tx,
             encoder: Some(encoder),

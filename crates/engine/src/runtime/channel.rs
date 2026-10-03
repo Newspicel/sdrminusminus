@@ -123,6 +123,7 @@ pub(crate) struct ChannelSinks {
     pub(crate) level_db: Arc<AtomicU32>,
     pub(crate) peak_db: Arc<AtomicU32>,
     pub(crate) squelch_db: Arc<AtomicU32>,
+    pub(crate) shift_hz: Arc<AtomicU64>,
 }
 
 pub(crate) struct ChannelHost {
@@ -350,6 +351,9 @@ impl ChannelHost {
         selected: Option<&[Complex<f32>]>,
     ) {
         self.ramp_doppler(input.len());
+        self.sinks
+            .shift_hz
+            .store(self.doppler.shift_hz.to_bits(), Ordering::Relaxed);
         self.follow_center(center_hz);
         if !self.in_band {
             self.sinks
@@ -620,6 +624,7 @@ mod tests {
             level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
             peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
             squelch_db: Arc::new(AtomicU32::new(f32::NAN.to_bits())),
+            shift_hz: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
         }
     }
 
@@ -1419,6 +1424,12 @@ mod tests {
         assert_eq!(
             host.frequency_hz, CENTER,
             "the tuned frequency stays the published one"
+        );
+        host.process_and_flush(&tone(0.0, 0.1, BLOCK), CENTER);
+        assert_eq!(
+            f64::from_bits(host.sinks.shift_hz.load(Ordering::Relaxed)),
+            3_000.0,
+            "the shift is published as live state"
         );
     }
 

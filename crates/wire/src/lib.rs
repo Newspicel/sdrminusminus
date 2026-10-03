@@ -658,6 +658,7 @@ mod contract_tests {
             level_db: -42.0,
             peak_db: -30.0,
             squelch_db: None,
+            shift_hz: None,
         };
         let json = serde_json::to_value(open).unwrap();
         assert!(json.get("squelch_db").is_none());
@@ -672,6 +673,31 @@ mod contract_tests {
         let back: ChannelLevel =
             serde_json::from_str(r#"{"channel":1,"level_db":-42.0,"peak_db":-30.0}"#).unwrap();
         assert_eq!(back, open);
+    }
+
+    #[test]
+    fn a_channel_level_carries_a_shift_only_while_steered() {
+        let steered = ChannelLevel {
+            channel: 1,
+            level_db: -42.0,
+            peak_db: -30.0,
+            squelch_db: None,
+            shift_hz: Some(8_200.5),
+        };
+        assert_eq!(
+            serde_json::to_value(steered).unwrap()["shift_hz"],
+            serde_json::json!(8_200.5)
+        );
+        let still = ChannelLevel {
+            shift_hz: None,
+            ..steered
+        };
+        assert!(
+            serde_json::to_value(still)
+                .unwrap()
+                .get("shift_hz")
+                .is_none()
+        );
     }
 
     #[test]

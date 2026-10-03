@@ -114,6 +114,10 @@ export function gateOpen(
   return level !== undefined && gate !== null && level.level_db >= gate;
 }
 
+export function heardHz(frequencyHz: number, level: ChannelLevel | undefined): number {
+  return frequencyHz + Math.round(level?.shift_hz ?? 0);
+}
+
 export function formatLevel(db: number | undefined): string {
   if (db === undefined || !Number.isFinite(db) || db <= LEVEL_FLOOR_DB) {
     return "-";

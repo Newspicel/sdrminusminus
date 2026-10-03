@@ -2948,6 +2948,8 @@ export interface components {
             level_db: number;
             /** Format: float */
             peak_db: number;
+            /** Format: double */
+            shift_hz?: number | null;
             /** Format: float */
             squelch_db?: number | null;
         };

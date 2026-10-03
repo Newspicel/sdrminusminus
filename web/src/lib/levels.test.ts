@@ -4,6 +4,7 @@ import {
   formatLevel,
   gateDb,
   gateOpen,
+  heardHz,
   LEVEL_FLOOR_DB,
   levelUnit,
   useLevelStore,
@@ -171,5 +172,14 @@ describe("formatLevel", () => {
     expect(formatLevel(undefined)).toBe("-");
     expect(formatLevel(LEVEL_FLOOR_DB)).toBe("-");
     expect(formatLevel(Number.NEGATIVE_INFINITY)).toBe("-");
+  });
+});
+
+describe("heardHz", () => {
+  it("adds the live shift a controller steers the decoder by", () => {
+    const level: ChannelLevel = { channel: 1, level_db: -40, peak_db: -30, shift_hz: 8_200.4 };
+    expect(heardHz(437_800_000, level)).toBe(437_808_200);
+    expect(heardHz(437_800_000, { ...level, shift_hz: null })).toBe(437_800_000);
+    expect(heardHz(437_800_000, undefined)).toBe(437_800_000);
   });
 });

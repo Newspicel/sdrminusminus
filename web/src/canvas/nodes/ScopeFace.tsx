@@ -66,6 +66,7 @@ import {
 } from "../../gl/waterfall";
 import { bookmarksQuery } from "../../lib/api";
 import type { SpectrumFrame } from "../../lib/frame";
+import { heardHz, type SetLevels, useLevelStore } from "../../lib/levels";
 import { SPECTRUM_MAX_BINS, spectrumHub } from "../../lib/spectrum";
 import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
 import { useArrayTune } from "../../lib/useArrayTune";
@@ -178,6 +179,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
   const workspace = useWorkspaceContext();
   const stream = source?.stream ?? 0;
   const setId = set?.id ?? null;
+  const levels = useLevelStore((state) => (setId === null ? undefined : state.byDeviceSet[setId]));
   const channels = useMemo(
     () => streamChannels(set?.channels ?? NO_CHANNELS, stream),
     [set?.channels, stream],
@@ -618,7 +620,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
     const at = pointerFraction(event.clientX);
     const grabbed =
       markerFrom(event.target, channels) ??
-      markerAt(channels, view, meta.centerHz, spanHz, at, GRAB_PX / rect.width);
+      markerAt(channels, levels, view, meta.centerHz, spanHz, at, GRAB_PX / rect.width);
     if (grabbed !== null) {
       selectChannel(grabbed.id);
     }
@@ -805,6 +807,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
       {meta !== null && (
         <Markers
           channels={channels}
+          levels={levels}
           view={view}
           centerHz={meta.centerHz}
           spanHz={meta.spanHz}
@@ -941,6 +944,7 @@ function Divider({
 
 function Markers({
   channels,
+  levels,
   view,
   centerHz,
   spanHz,
@@ -952,6 +956,7 @@ function Markers({
   widthPx,
 }: {
   channels: readonly ChannelInfo[];
+  levels: SetLevels | undefined;
   view: SpectrumView;
   centerHz: number;
   spanHz: number;
@@ -969,7 +974,7 @@ function Markers({
       const offsetHz =
         preview?.channel === channel.id
           ? preview.offsetHz
-          : channel.settings.frequency_hz - centerHz;
+          : heardHz(channel.settings.frequency_hz, levels?.[channel.id]) - centerHz;
       return {
         channel,
         hz: centerHz + offsetHz,
@@ -1175,6 +1180,7 @@ function MarkerLabel({
 
 function markerAt(
   channels: readonly ChannelInfo[],
+  levels: SetLevels | undefined,
   view: SpectrumView,
   centerHz: number,
   spanHz: number,
@@ -1184,7 +1190,7 @@ function markerAt(
   let best: ChannelInfo | null = null;
   let bestDistance = tolerance;
   for (const channel of channels) {
-    const offsetHz = channel.settings.frequency_hz - centerHz;
+    const offsetHz = heardHz(channel.settings.frequency_hz, levels?.[channel.id]) - centerHz;
     const position = spanToView(view, offsetToSpan(offsetHz, spanHz));
     const distance = Math.abs(position - at);
     if (distance <= bestDistance) {

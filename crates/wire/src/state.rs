@@ -120,6 +120,8 @@ pub struct ChannelLevel {
     pub peak_db: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub squelch_db: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shift_hz: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

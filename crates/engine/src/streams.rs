@@ -208,6 +208,8 @@ impl Engine {
                         media.sinks.squelch_db.load(Ordering::Relaxed),
                     ))
                     .filter(|db| db.is_finite()),
+                    shift_hz: Some(f64::from_bits(media.sinks.shift_hz.load(Ordering::Relaxed)))
+                        .filter(|hz| *hz != 0.0 && hz.is_finite()),
                 })
             })
             .collect()

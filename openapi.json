@@ -10065,6 +10065,13 @@
             "type": "number",
             "format": "float"
           },
+          "shift_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "squelch_db": {
             "type": [
               "number",
