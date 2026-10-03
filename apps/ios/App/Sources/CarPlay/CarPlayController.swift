@@ -110,7 +110,7 @@ final class CarPlayController {
     private func observeLink() {
         let text: String?
         if model.needsPairing {
-            text = "Pair on iPhone"
+            text = "Not paired"
         } else {
             switch model.link {
             case .online: text = nil
