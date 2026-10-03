@@ -38,16 +38,24 @@ through it. [Radios](https://sdrmm.com/docs/hardware) covers other hardware.
 
 ## What it supports
 
-- **Listening:** AM, NFM, broadcast FM with stereo and RDS, SSB, and digital voice.
-- **Decoding:** aircraft, ships, amateur radio, pagers, sensors, images, and more.
-- **Displays:** spectrum, waterfalls, maps, decoded messages, and video.
-- **Recording:** device IQ, channel baseband, and audio, with SigMF playback.
-- **Radio tools:** scanning, signal identification, coherent arrays, direction finding, and passive radar.
-- **Automation:** REST, WebSocket, MCP, network IQ export, and event forwarding.
-
-SDR-- is under active development. The
-[decoder catalog](https://sdrmm.com/docs/user-guide/decoders#catalog) shows how well
-each mode is tested.
+- **Listening:** [AM, NFM, WFM with stereo and RDS, SSB](https://sdrmm.com/docs/user-guide/channels), digital voice
+  (DMR, P25, NXDN, D-STAR, FreeDV, M17), and [noise reduction](https://sdrmm.com/docs/user-guide/channels#audio-fx).
+- **Decoding:** [aircraft, ships, pagers, amateur modes, weather satellites, radiosondes, DAB, DRM,
+  and DVB](https://sdrmm.com/docs/user-guide/decoders#catalog).
+- **Displays:** [spectrum, waterfalls, maps, decoded messages, and video](https://sdrmm.com/docs/getting-started/workspace).
+- **Recording:** [device IQ, channel baseband, audio, and each call](https://sdrmm.com/docs/user-guide/recording),
+  with a time machine and SigMF playback.
+- **Finding signals:** [scanning, signal identification, band monitoring, and transmitter
+  hunting](https://sdrmm.com/docs/user-guide/scanning).
+- **Arrays:** [coherent arrays](https://sdrmm.com/docs/user-guide/arrays),
+  [direction finding](https://sdrmm.com/docs/user-guide/direction-finding), and
+  [passive radar](https://sdrmm.com/docs/user-guide/passive-radar).
+- **Location:** [GPS](https://sdrmm.com/docs/user-guide/position), [satellite tracking](https://sdrmm.com/docs/user-guide/satellites),
+  and a [propagation map](https://sdrmm.com/docs/user-guide/propagation).
+- **Phones:** [iPhone and Android remote](https://sdrmm.com/docs/user-guide/phones) with CarPlay and Android Auto.
+- **Tools:** [antenna calculator, NanoVNA, and radio programmer](https://sdrmm.com/docs/user-guide/tools).
+- **Automation:** [REST, WebSocket, and MCP](https://sdrmm.com/docs/server/api), plus
+  [network IQ, webhooks, MQTT, and databases](https://sdrmm.com/docs/user-guide/network-iq).
 
 ## Screenshots
 
