@@ -25,11 +25,26 @@ The app lives in `apps/ios` and needs Xcode 27.
 | `cargo xtask ios lint` | swift-format and the comment check |
 | `cargo xtask ios e2e` | The app against a real `sdrmm` |
 | `cargo xtask ios archive` | A Release archive in `target/ios/`, after a privacy manifest check |
+| `cargo xtask ios upload` | Upload the archive to App Store Connect |
 
 Tests run on an iPhone 17 simulator with iOS 27; `SDRMM_IOS_SIMULATOR` names another one.
 
 To run it on your own iPhone, run `cargo xtask ios generate`, open `apps/ios/SDRmm.xcodeproj`, and
 set your team in `apps/ios/Config/Local.xcconfig` as `DEVELOPMENT_TEAM = <team>`.
+
+Tagged releases upload iOS when the app, mobile core, wire types, dependencies, or build setup
+changed since the previous tag. The version comes from the shared release stamp. The build number
+uses the workflow run and attempt. Uploads appear in TestFlight after Apple processes them; App
+Store review is separate.
+
+CI needs `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and
+`APP_STORE_CONNECT_PRIVATE_KEY` in GitHub secrets. Cloud signing requires an Admin team key.
+Locally, use the signed-in Xcode account or set
+`APP_STORE_CONNECT_KEY_PATH`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID`.
+`SDRMM_IOS_BUILD_NUMBER` overrides the default build number before archiving.
+
+Device builds leave CarPlay off until Apple approves the Navigation entitlement. Once approved,
+set `SDRMM_CARPLAY = YES` in `Config/Local.xcconfig` and regenerate the provisioning profile.
 
 ## Android
 
