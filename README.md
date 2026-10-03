@@ -60,9 +60,6 @@ through it. [Radios](https://sdrmm.com/docs/hardware) covers other hardware.
 
 ## Screenshots
 
-These captures use debug-build signal sources and repository IQ fixtures. Regenerate them with
-`cargo xtask screenshots`.
-
 <table>
 <tr><th width="50%">Spectrum and waterfall</th><th width="50%">Rack view</th></tr>
 <tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/spectrum-light.png"><img width="100%" src="assets/screenshots/spectrum-dark.png" alt="Spectrum with the tuned channel marked"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rack-light.png"><img width="100%" src="assets/screenshots/rack-dark.png" alt="Three receivers in the rack"></picture></td></tr>
@@ -75,12 +72,6 @@ These captures use debug-build signal sources and repository IQ fixtures. Regene
 <tr><th width="50%">Pager messages</th><th width="50%">Broadcast FM</th></tr>
 <tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/pocsag-light.png"><img width="100%" src="assets/screenshots/pocsag-dark.png" alt="POCSAG messages with webhook output"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rds-light.png"><img width="100%" src="assets/screenshots/rds-dark.png" alt="RDS station name, text, and alternate frequencies"></picture></td></tr>
 </table>
-
-## Documentation and API
-
-- [User and developer guide](https://sdrmm.com/docs/)
-- Swagger UI: `/api/docs` on a running server
-- OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
 
 ## Thanks
 
