@@ -22,7 +22,8 @@ Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
 ## Install
 
 Download a desktop installer or portable server from
-[GitHub Releases](https://github.com/Newspicel/sdrmm/releases).
+[GitHub Releases](https://github.com/Newspicel/sdrmm/releases), or
+[build](https://sdrmm.com/docs/development/building) it yourself.
 The [installation guide](https://sdrmm.com/docs/getting-started/install)
 covers macOS, Windows, Linux, Homebrew, APT, DNF, Nix, and Docker.
 
@@ -74,24 +75,6 @@ These captures use debug-build signal sources and repository IQ fixtures. Regene
 <tr><th width="50%">Pager messages</th><th width="50%">Broadcast FM</th></tr>
 <tr><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/pocsag-light.png"><img width="100%" src="assets/screenshots/pocsag-dark.png" alt="POCSAG messages with webhook output"></picture></td><td><picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rds-light.png"><img width="100%" src="assets/screenshots/rds-dark.png" alt="RDS station name, text, and alternate frequencies"></picture></td></tr>
 </table>
-
-## Build
-
-```sh
-git clone https://github.com/Newspicel/sdrmm.git
-cd sdrmm
-python3 scripts/build-media.py
-export FFMPEG_DIR="$(python3 scripts/build-media.py --print-prefix)"
-pnpm --dir web install --frozen-lockfile
-pnpm --dir web build
-cargo run -p sdrmm
-```
-
-Open <http://localhost:8080>, or run `cargo xtask dev --watch` and open <http://localhost:5173>
-for hot reload. `cargo xtask check` and `cargo xtask test` are the main gates.
-
-The [build guide](https://sdrmm.com/docs/development/building) lists prerequisites and
-every check.
 
 ## Documentation and API
 
