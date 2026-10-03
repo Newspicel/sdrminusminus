@@ -45,7 +45,7 @@ The server listens on every network interface with no password. Set up
 App, macOS:
 
 ```sh
-brew install newspicel/tap/sdrmm-app
+brew install --cask sdrmm-app
 ```
 
 Server, macOS or Linux:

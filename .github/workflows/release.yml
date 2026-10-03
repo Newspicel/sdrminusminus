@@ -21,7 +21,6 @@ jobs:
     outputs:
       changed: ${{ steps.changed.outputs.changed }}
       version: ${{ steps.version.outputs.version }}
-      tap: ${{ steps.publish.outputs.tap }}
       winget: ${{ steps.publish.outputs.winget }}
       aur: ${{ steps.publish.outputs.aur }}
       packages: ${{ steps.publish.outputs.packages }}
@@ -46,19 +45,17 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - id: publish
         env:
-          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
         run: |
           {
-            echo "tap=${TAP_TOKEN:+true}"
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
             echo "packages=${PACKAGES_GPG_KEY:+true}"
           } >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            for name in tap winget aur packages; do
+            for name in winget aur packages; do
               grep -qx "$name=true" "$GITHUB_OUTPUT" || echo "::warning::$name not published: secret missing"
             done
           fi
@@ -502,40 +499,6 @@ jobs:
             --prerelease \
             --notes "Build of \`main\` at ${GITHUB_SHA}. Replaced every night. Container image: \`docker pull ${IMAGE_NAME}:nightly\`" \
             "${files[@]}"
-
-  homebrew:
-    name: Homebrew tap
-    if: github.ref_type == 'tag' && needs.plan.outputs.tap == 'true'
-    needs: [plan, version, release]
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Fetch checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-      - name: Write cask
-        run: |
-          cargo xtask-release homebrew-tap \
-            --version "${{ needs.version.outputs.version }}" \
-            --sums SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
-            --out tap
-      - name: Push tap
-        working-directory: tap
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm --quiet --ignore-unmatch Casks/sdrminusminus.rb Formula/sdrmm.rb
-          git add Casks/sdrmm-app.rb cask_renames.json tap_migrations.json
-          git diff --cached --quiet && exit 0
-          git commit -m "sdrmm-app ${{ needs.version.outputs.version }}"
-          git push
 
   winget:
     name: WinGet

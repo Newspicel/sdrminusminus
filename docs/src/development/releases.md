@@ -106,28 +106,10 @@ ghcr.io/newspicel/sdrmm:latest
 Nightlies update `:nightly` and add a `sha-<commit>` tag. CI builds both architectures and checks
 the binary, SoapySDR modules, server startup, and embedded frontend.
 
-## Homebrew tap
+## Homebrew
 
-The `sdrmm` formula lives in homebrew-core and builds from the GitHub source tarball. The release
-workflow updates the `sdrmm-app` cask in `Newspicel/homebrew-tap`, which downloads from GitHub
-Releases:
-
-```sh
-cargo xtask homebrew-tap \
-  --version 1.2.3 \
-  --sums SHA256SUMS \
-  --repo Newspicel/sdrmm \
-  --out ../homebrew-tap
-```
-
-The generator checks required artifacts against `SHA256SUMS`.
-
-Validate generator changes:
-
-```sh
-brew style newspicel/tap
-brew audit --strict --online --cask newspicel/tap/sdrmm-app
-```
+The `sdrmm` formula lives in homebrew-core and the `sdrmm-app` cask in homebrew-cask. Homebrew
+bumps both after a release.
 
 ## AUR and WinGet
 
@@ -163,7 +145,6 @@ Uploads are cached as immutable. Never replace a file; publish a new prefix inst
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | R2 uploads | A tagged release fails |
 | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Updater signatures | The release fails |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | macOS signing and notarization | The release fails |
-| `HOMEBREW_TAP_TOKEN` | Writing the tap | The tap job is skipped |
 | `AUR_SSH_KEY` | Pushing to the AUR | The AUR job is skipped |
 | `WINGET_TOKEN` | WinGet submission | The WinGet job is skipped |
 | `PACKAGES_GPG_KEY` | Signing the APT and RPM repository | The repository job is skipped |

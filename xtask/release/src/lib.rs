@@ -1,6 +1,5 @@
 mod aur;
 pub mod changeset;
-mod homebrew;
 mod sums;
 mod updater;
 mod version;
@@ -41,16 +40,6 @@ pub enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    HomebrewTap {
-        #[arg(long)]
-        version: String,
-        #[arg(long)]
-        sums: PathBuf,
-        #[arg(long)]
-        repo: String,
-        #[arg(long)]
-        out: PathBuf,
-    },
     Aur {
         #[arg(long)]
         version: String,
@@ -73,12 +62,6 @@ pub fn run(root: &Path, cmd: &Cmd) -> Result<()> {
             base_url,
             out,
         } => updater::manifest(dir, version, base_url, out.as_deref()),
-        Cmd::HomebrewTap {
-            version,
-            sums,
-            repo,
-            out,
-        } => homebrew::tap(sums, version, repo, out),
         Cmd::Aur { version, sums, out } => aur::packages(sums, version, out),
     }
 }
